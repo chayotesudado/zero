@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Zero
+Name[es]=Zero
+Comment=Todoist tasks for today, upcoming, and every project
+Comment[es]=Tareas de Todoist para hoy, lo próximo y cada proyecto
+Exec=zero
+Icon=zero
+Terminal=false
+Categories=Office;ProjectManagement;Utility;
+Keywords=todoist;todo;tasks;
+StartupWMClass=zero

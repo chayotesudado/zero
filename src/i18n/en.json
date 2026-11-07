@@ -1,0 +1,10 @@
+{
+  "%n tasks": {
+    "one": "%n task",
+    "other": "%n tasks"
+  },
+  "%n open tasks will be deleted with it.": {
+    "one": "%n open task will be deleted with it.",
+    "other": "%n open tasks will be deleted with it."
+  }
+}

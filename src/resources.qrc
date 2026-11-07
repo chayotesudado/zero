@@ -1,0 +1,19 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="TaskRow.qml">TaskRow.qml</file>
+        <file alias="ZeroMark.qml">ZeroMark.qml</file>
+        <file alias="ListIcon.qml">ListIcon.qml</file>
+        <file alias="SignInView.qml">SignInView.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="MovePicker.qml">MovePicker.qml</file>
+        <file alias="NewProjectDialog.qml">NewProjectDialog.qml</file>
+        <file alias="ColorSwatches.qml">ColorSwatches.qml</file>
+        <file alias="ProjectColorDialog.qml">ProjectColorDialog.qml</file>
+        <file alias="DeleteProjectDialog.qml">DeleteProjectDialog.qml</file>
+        <file alias="SchedulePicker.qml">SchedulePicker.qml</file>
+        <file alias="Dates.js">Dates.js</file>
+        <file alias="i18n/en.json">i18n/en.json</file>
+        <file alias="i18n/es.json">i18n/es.json</file>
+    </qresource>
+</RCC>
