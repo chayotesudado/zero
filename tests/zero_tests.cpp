@@ -107,6 +107,45 @@ private slots:
         QCOMPARE(depths.value("orphan"), 0);
     }
 
+    void ordersSubProjectsUnderParents() {
+        // child_order only ranks siblings, so a sub-project's 0 mustn't put
+        // it above its parent.
+        const QList<Project> list = Tasks::parseProjects({
+            QJsonObject{{"id", "home"}, {"name", "Home"}, {"child_order", 2}},
+            QJsonObject{{"id", "deep"}, {"name", "Deep"}, {"parent_id", "sub"}, {"child_order", 0}},
+            QJsonObject{{"id", "sub"}, {"name", "Sub"}, {"parent_id", "work"}, {"child_order", 0}},
+            QJsonObject{{"id", "orphan"}, {"name", "Orphan"}, {"parent_id", "archived"}, {"child_order", 3}},
+            projects.at(1), projects.at(0),
+        });
+        QStringList ids;
+        for (const auto &p : list)
+            ids << p.id;
+        QCOMPARE(ids, QStringList({"inbox1", "work", "sub", "deep", "home", "orphan"}));
+    }
+
+    void backendNestsSubProjects() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QJsonArray list = projects;
+        list << QJsonObject{{"id", "sub"}, {"name", "Sub"}, {"parent_id", "work"}, {"child_order", 0}}
+             << QJsonObject{{"id", "orphan"}, {"name", "Orphan"}, {"parent_id", "archived"}, {"child_order", 5}};
+        FakeServer server([&list](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(list)};
+            return {200, page({})};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        QStringList shown;
+        for (const auto &entry : backend.projects()) {
+            const QVariantMap map = entry.toMap();
+            shown << map.value("id").toString() + ":" + QString::number(map.value("depth").toInt());
+        }
+        QCOMPARE(shown, QStringList({"work:0", "sub:1", "orphan:0"}));
+    }
+
     void skipsCheckedAndArchived() {
         QJsonObject done = task("1", "done");
         done.insert("checked", true);
@@ -440,6 +479,111 @@ private slots:
         QTest::qWait(100);
         for (const auto &r : server.requests)
             QVERIFY(r.method != "DELETE");
+    }
+
+    void backendLoadsAViewPickedWhileStarting() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.target.contains("project_id=inbox1"))
+                return {200, page({task("a", "In the inbox")})};
+            return {200, page({})};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        // The Inbox is picked while the first list of projects is on its way.
+        bool picked = false;
+        connect(&server, &QTcpServer::newConnection, &backend, [&] {
+            if (!picked) {
+                picked = true;
+                backend.showView("inbox");
+            }
+        });
+        QTRY_VERIFY(backend.loaded());
+        QCOMPARE(backend.view(), QString("inbox"));
+        QCOMPARE(backend.tasks().size(), 1);
+    }
+
+    void backendDropsUndoStepsThatCantWork() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        int reopenStatus = 404;
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/filter")
+                return {200, page({task("a", "Gone elsewhere", iso(0)), task("b", "Still here", iso(0))})};
+            if (request.path().endsWith("/reopen"))
+                return {reopenStatus, R"({"error":"x"})"};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {204, {}};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+
+        backend.complete("b");
+        settle();
+        backend.complete("a");
+        settle();
+
+        // Todoist busy: the step stays, to try again.
+        reopenStatus = 503;
+        backend.undo();
+        settle();
+        QVERIFY(!backend.error().isEmpty());
+        QVERIFY(backend.canUndo());
+
+        // Deleted elsewhere: the step goes, and the one under it still undoes.
+        reopenStatus = 404;
+        backend.undo();
+        settle();
+        QVERIFY(backend.error().contains("Gone elsewhere"));
+        QVERIFY(backend.canUndo());
+        reopenStatus = 200;
+        backend.undo();
+        settle();
+        QVERIFY(!backend.canUndo());
+        QVERIFY(backend.canRedo());
+        bool reopenedB = false;
+        for (const auto &r : server.requests)
+            reopenedB |= r.path() == "/tasks/b/reopen";
+        QVERIFY(reopenedB);
+    }
+
+    void backendForgetsAddsIntoADeletedProject() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Milk")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {204, {}};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+
+        // Quick add makes it in the Inbox, then it's moved into Work.
+        backend.showView("project:work");
+        settle();
+        backend.add("Milk");
+        settle();
+        QVERIFY(backend.canUndo());
+
+        backend.deleteProject("work");
+        QVERIFY(!backend.canUndo());
     }
 
     void backendColorsProjectsWithTodoistsNames() {
