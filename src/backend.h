@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QSet>
 #include <QList>
 #include <QObject>
 #include <QTimer>
@@ -23,8 +24,14 @@ class Backend : public QObject {
     Q_PROPERTY(QString view READ view NOTIFY viewChanged)
     Q_PROPERTY(QString viewName READ viewName NOTIFY viewNameChanged)
     Q_PROPERTY(QVariantList tasks READ tasks NOTIFY tasksChanged)
+    // What the list shows: tasks, and in a project or the Inbox, a heading
+    // for each section ({kind: "section"}) before its tasks. Each row has a
+    // unique key ("task:<id>", "section:<id>").
+    Q_PROPERTY(QVariantList rows READ rows NOTIFY tasksChanged)
     Q_PROPERTY(QVariantList projects READ projects NOTIFY projectsChanged)
-    // Every project a task can move to, the Inbox first.
+    // Every project a task can move to, the Inbox first, each followed by
+    // its sections: {key, kind: "project"|"section", projectId, sectionId,
+    // name, path, depth, color, inbox}.
     Q_PROPERTY(QVariantList destinations READ destinations NOTIFY projectsChanged)
     // Todoist's project colors: [{name: "berry_red", hex: "#b8255f"}, ...].
     Q_PROPERTY(QVariantList colors READ colors CONSTANT)
@@ -44,6 +51,7 @@ public:
     QString view() const { return m_view; }
     QString viewName() const;
     QVariantList tasks() const;
+    QVariantList rows() const;
     QVariantList projects() const;
     QVariantList destinations() const;
     QVariantList colors() const;
@@ -60,8 +68,14 @@ public:
     Q_INVOKABLE void complete(const QString &taskId);
     // Quick add, filed into the list on screen: a project view's project,
     // and today's date in Today, unless the text names its own.
-    Q_INVOKABLE void add(const QString &text);
-    Q_INVOKABLE void moveTask(const QString &taskId, const QString &projectId);
+    // sectionId files it into one of the list's sections.
+    Q_INVOKABLE void add(const QString &text, const QString &sectionId = {});
+    // Gone for good, with its subtasks; Todoist has no way back.
+    Q_INVOKABLE void deleteTask(const QString &taskId);
+    // How many of its subtasks are in the list on screen.
+    Q_INVOKABLE int subtaskCount(const QString &taskId) const;
+    // An empty sectionId puts it in the project outside any section.
+    Q_INVOKABLE void moveTask(const QString &taskId, const QString &projectId, const QString &sectionId = {});
     // Natural language, as Todoist reads it: "tomorrow 5pm", "next monday",
     // "every friday", or "no date" to clear it.
     Q_INVOKABLE void schedule(const QString &taskId, const QString &dueString);
@@ -70,6 +84,15 @@ public:
     // Counts what deleting would take with it; answers with projectContents.
     Q_INVOKABLE void inspectProject(const QString &projectId);
     Q_INVOKABLE void deleteProject(const QString &projectId);
+    // Makes it a sub-project of parentId, or top-level when that's empty.
+    Q_INVOKABLE void moveProject(const QString &projectId, const QString &parentId);
+    // Where a project can move: top level, then every project but the Inbox,
+    // itself, and its own sub-projects. Same shape as destinations.
+    Q_INVOKABLE QVariantList parentChoices(const QString &projectId) const;
+    // A section in the project or Inbox on screen.
+    Q_INVOKABLE void createSection(const QString &name);
+    // Todoist deletes the section's tasks with it.
+    Q_INVOKABLE void deleteSection(const QString &sectionId);
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void dismissError();
@@ -92,27 +115,41 @@ signals:
     void added(const QString &content);
     void projectCreated(const QString &name);
     void projectDeleted(const QString &name);
+    void projectMoved(const QString &name);
+    void taskDeleted(const QString &content);
+    void sectionCreated(const QString &name);
+    void sectionDeleted(const QString &name);
     // taskCount is -1 when it couldn't be counted; subprojects are names.
     void projectContents(const QString &projectId, int taskCount, const QStringList &subprojects);
 
 private:
     struct Step {
-        enum Kind { Completed, Added, Moved, Scheduled } kind;
+        // For ProjectMoved, taskId is the project's id.
+        enum Kind { Completed, Added, Moved, Scheduled, ProjectMoved } kind;
         QString taskId;
         QString text;
         Task task;
         // For a move, the projects; for a reschedule, the due strings; for
-        // an add, to is the project it was filed into, if it was moved there.
+        // an add, to is the project it was filed into, if it was moved there;
+        // for a project's move, its parents.
         QString from, to;
+        // For a move or an add, the sections, if any.
+        QString fromSection = {}, toSection = {};
     };
 
     void begin();
     void end();
     void fail(const QString &message);
+    void loadFailed(const QString &message);
+    void loadSucceeded();
     void loadView();
     void loadCounts();
     void applyTasks(const QList<Task> &tasks);
-    void removeLocally(const QString &taskId);
+    // Returns the ids removed: the task and its subtasks.
+    QSet<QString> removeLocally(const QString &taskId);
+    void dropSteps(const std::function<bool(const Step &)> &gone);
+    QString viewProjectId() const;
+    QList<Section> sectionsOf(const QString &projectId) const;
     void pushUndo(const Step &step);
     QString inboxId() const;
     QStringList descendantsOf(const QString &projectId) const;
@@ -120,6 +157,7 @@ private:
     static QString dueStringOf(const Task &task);
     void applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    void applyProjectMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void undoFailed(const Step &step, const ApiError &error);
     void reloadSoon();
 
@@ -130,6 +168,7 @@ private:
     QHash<QString, int> m_depths;
     QList<Project> m_projects;
     QHash<QString, Project> m_projectsById;
+    QList<Section> m_sections;
     int m_todayCount = 0;
     int m_inboxCount = 0;
     int m_busy = 0;
@@ -139,6 +178,8 @@ private:
     // The view on screen asked to load before there were projects to load it with.
     bool m_viewWaiting = false;
     QString m_error;
+    // The error a failed load showed, which the next good load clears.
+    QString m_loadError;
     QList<Step> m_undo, m_redo;
     QTimer m_poll;
 };

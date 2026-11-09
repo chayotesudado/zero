@@ -12,6 +12,9 @@
         <file alias="ProjectColorDialog.qml">ProjectColorDialog.qml</file>
         <file alias="DeleteProjectDialog.qml">DeleteProjectDialog.qml</file>
         <file alias="SchedulePicker.qml">SchedulePicker.qml</file>
+        <file alias="SectionRow.qml">SectionRow.qml</file>
+        <file alias="SectionDialog.qml">SectionDialog.qml</file>
+        <file alias="ConfirmDialog.qml">ConfirmDialog.qml</file>
         <file alias="Dates.js">Dates.js</file>
         <file alias="i18n/en.json">i18n/en.json</file>
         <file alias="i18n/es.json">i18n/es.json</file>

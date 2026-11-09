@@ -36,6 +36,61 @@ QVariantList Backend::tasks() const {
     return list;
 }
 
+QVariantList Backend::rows() const {
+    const QDateTime now = QDateTime::currentDateTime();
+    auto taskRow = [&](const Task &task) {
+        QVariantMap row = Tasks::toVariant(task, now, m_projectsById, m_depths.value(task.id));
+        row.insert("kind", "task");
+        row.insert("key", "task:" + task.id);
+        return QVariant(row);
+    };
+    QVariantList list;
+    const QString project = viewProjectId();
+    if (project.isEmpty()) {
+        for (const auto &task : m_tasks)
+            list << taskRow(task);
+        return list;
+    }
+    if (!m_loaded)
+        return list;
+    // m_tasks is already in this order (Tasks::sortBySection); the headings
+    // go in between, empty sections included so they can be seen and used.
+    const QList<Section> sections = sectionsOf(project);
+    QSet<QString> known;
+    for (const auto &section : sections)
+        known.insert(section.id);
+    for (const auto &task : m_tasks)
+        if (!known.contains(task.sectionId))
+            list << taskRow(task);
+    for (const auto &section : sections) {
+        int count = 0;
+        for (const auto &task : m_tasks)
+            count += task.sectionId == section.id ? 1 : 0;
+        list << QVariantMap{{"kind", "section"}, {"key", "section:" + section.id}, {"id", section.id},
+                            {"name", section.name}, {"projectId", section.projectId}, {"count", count}};
+        for (const auto &task : m_tasks)
+            if (task.sectionId == section.id)
+                list << taskRow(task);
+    }
+    return list;
+}
+
+QString Backend::viewProjectId() const {
+    if (m_view == "inbox")
+        return inboxId();
+    if (m_view.startsWith("project:"))
+        return m_view.mid(8);
+    return {};
+}
+
+QList<Section> Backend::sectionsOf(const QString &projectId) const {
+    QList<Section> list;
+    for (const auto &section : m_sections)
+        if (section.projectId == projectId)
+            list << section;
+    return list;
+}
+
 QVariantList Backend::projects() const {
     QVariantList list;
     QHash<QString, int> depth;
@@ -46,18 +101,46 @@ QVariantList Backend::projects() const {
         const int level = depth.contains(project.parentId) ? depth.value(project.parentId) + 1 : 0;
         depth.insert(project.id, level);
         list << QVariantMap{{"id", project.id}, {"name", project.name}, {"colorName", project.color},
-                            {"color", Tasks::colorHex(project.color)}, {"depth", level}};
+                            {"color", Tasks::colorHex(project.color)}, {"depth", level},
+                            {"parentId", depth.contains(project.parentId) ? project.parentId : QString()}};
     }
     return list;
 }
 
 QVariantList Backend::destinations() const {
     QVariantList list;
+    auto add = [&](const QString &id, const QString &name, const QString &color, int depth, bool inbox) {
+        list << QVariantMap{{"key", "project:" + id}, {"kind", "project"}, {"projectId", id}, {"sectionId", QString()},
+                            {"name", name}, {"path", name}, {"color", color}, {"depth", depth}, {"inbox", inbox}};
+        for (const auto &section : sectionsOf(id))
+            list << QVariantMap{{"key", "section:" + section.id}, {"kind", "section"}, {"projectId", id},
+                                {"sectionId", section.id}, {"name", section.name},
+                                {"path", name + " / " + section.name}, {"color", color}, {"depth", depth + 1},
+                                {"inbox", inbox}};
+    };
     for (const auto &project : m_projects)
         if (project.inbox)
-            list << QVariantMap{{"id", project.id}, {"name", tr("Inbox")}, {"color", QString()}, {"depth", 0}, {"inbox", true}};
+            add(project.id, tr("Inbox"), QString(), 0, true);
+    for (const auto &entry : projects()) {
+        const QVariantMap map = entry.toMap();
+        add(map.value("id").toString(), map.value("name").toString(), map.value("color").toString(),
+            map.value("depth").toInt(), false);
+    }
+    return list;
+}
+
+QVariantList Backend::parentChoices(const QString &projectId) const {
+    const QStringList excluded = QStringList{projectId} + descendantsOf(projectId);
+    QVariantList list{QVariantMap{{"key", "top"}, {"kind", "top"}, {"projectId", QString()}, {"name", tr("No parent (top level)")},
+                                  {"path", tr("No parent (top level)")}, {"color", QString()}, {"depth", 0}, {"inbox", false}}};
     for (const auto &entry : projects()) {
         QVariantMap map = entry.toMap();
+        if (excluded.contains(map.value("id").toString()))
+            continue;
+        map.insert("key", "project:" + map.value("id").toString());
+        map.insert("kind", "project");
+        map.insert("projectId", map.value("id"));
+        map.insert("path", map.value("name"));
         map.insert("inbox", false);
         list << map;
     }
@@ -90,6 +173,20 @@ void Backend::fail(const QString &message) {
 
 void Backend::dismissError() { fail({}); }
 
+// A failed load says so until a load succeeds. That success clears only
+// errors from loading: a failed move or add stays up even though the list
+// reloads after it.
+void Backend::loadFailed(const QString &message) {
+    m_loadError = message;
+    fail(message);
+}
+
+void Backend::loadSucceeded() {
+    if (!m_loadError.isEmpty() && m_error == m_loadError)
+        fail({});
+    m_loadError.clear();
+}
+
 void Backend::showView(const QString &view) {
     if (view == m_view)
         return;
@@ -107,17 +204,26 @@ void Backend::showView(const QString &view) {
 void Backend::refresh() {
     if (!signedIn())
         return;
-    begin();
     const int generation = m_generation;
-    // Projects first: the Inbox view needs the Inbox's id, and every view
-    // shows project names.
-    m_client.projects([this, generation](const QJsonArray &results, const QString &error) {
-        end();
-        if (!error.isEmpty()) {
-            fail(error);
+    // Projects and sections first: the Inbox view needs the Inbox's id,
+    // every view shows project names, and project views their sections.
+    struct Answers {
+        QJsonArray projects, sections;
+        ApiError projectsError, sectionsError;
+        int pending = 2;
+    };
+    auto answers = std::make_shared<Answers>();
+    auto settled = [this, generation, answers] {
+        if (!answers->projectsError.isEmpty()) {
+            loadFailed(answers->projectsError);
             return;
         }
-        m_projects = Tasks::parseProjects(results);
+        m_projects = Tasks::parseProjects(answers->projects);
+        // Without sections, lists still work; the ones already known stay.
+        if (answers->sectionsError.isEmpty())
+            m_sections = Tasks::parseSections(answers->sections);
+        else
+            loadFailed(answers->sectionsError);
         m_projectsById.clear();
         for (const auto &project : m_projects)
             m_projectsById.insert(project.id, project);
@@ -133,6 +239,22 @@ void Backend::refresh() {
         if (generation == m_generation || m_viewWaiting)
             loadView();
         loadCounts();
+    };
+    auto answered = [this, answers, settled](QJsonArray *into, ApiError *failed, const QJsonArray &results,
+                                             const ApiError &error) {
+        end();
+        *into = results;
+        *failed = error;
+        if (--answers->pending == 0)
+            settled();
+    };
+    begin();
+    begin();
+    m_client.projects([answers, answered](const QJsonArray &results, const ApiError &error) {
+        answered(&answers->projects, &answers->projectsError, results, error);
+    });
+    m_client.sections({}, [answers, answered](const QJsonArray &results, const ApiError &error) {
+        answered(&answers->sections, &answers->sectionsError, results, error);
     });
 }
 
@@ -151,16 +273,16 @@ void Backend::loadView() {
         if (generation != m_generation)
             return;
         if (!error.isEmpty()) {
-            fail(error);
+            loadFailed(error);
             return;
         }
-        fail({});
+        loadSucceeded();
         QList<Task> tasks = Tasks::parse(results);
         m_depths.clear();
         if (view == "today" || view == "upcoming")
             Tasks::sortByDue(tasks);
         else
-            tasks = Tasks::sortAsTree(tasks, &m_depths);
+            tasks = Tasks::sortBySection(tasks, sectionsOf(viewProjectId()), &m_depths);
         applyTasks(tasks);
     };
     begin();
@@ -242,6 +364,7 @@ void Backend::signOut() {
     m_tasks.clear();
     m_projects.clear();
     m_projectsById.clear();
+    m_sections.clear();
     m_undo.clear();
     m_redo.clear();
     m_todayCount = m_inboxCount = 0;
@@ -254,7 +377,7 @@ void Backend::signOut() {
     emit historyChanged();
 }
 
-void Backend::removeLocally(const QString &taskId) {
+QSet<QString> Backend::removeLocally(const QString &taskId) {
     // Subtasks go with their parent, as they do in Todoist.
     QSet<QString> gone{taskId};
     bool grew = true;
@@ -281,6 +404,37 @@ void Backend::removeLocally(const QString &taskId) {
     m_tasks = kept;
     emit tasksChanged();
     emit countsChanged();
+    return gone;
+}
+
+void Backend::dropSteps(const std::function<bool(const Step &)> &gone) {
+    auto drop = [&gone](QList<Step> &steps) {
+        steps.erase(std::remove_if(steps.begin(), steps.end(), gone), steps.end());
+    };
+    drop(m_undo);
+    drop(m_redo);
+    emit historyChanged();
+}
+
+void Backend::deleteTask(const QString &taskId) {
+    const Task *found = findTask(taskId);
+    if (!found)
+        return;
+    const Task task = *found;
+    const QSet<QString> gone = removeLocally(taskId);
+    // Nothing done to these can be undone or redone any more.
+    dropSteps([gone](const Step &step) { return step.kind != Step::ProjectMoved && gone.contains(step.taskId); });
+    begin();
+    m_client.remove(taskId, [this, task](const QJsonObject &, const ApiError &error) {
+        end();
+        if (!error.isEmpty()) {
+            fail(tr("Couldn't delete “%1”. %2").arg(task.content, error.message));
+            loadView();
+        } else {
+            emit taskDeleted(task.content);
+        }
+        loadCounts();
+    });
 }
 
 void Backend::pushUndo(const Step &step) {
@@ -317,29 +471,34 @@ void Backend::complete(const QString &taskId) {
     });
 }
 
-void Backend::add(const QString &text) {
+void Backend::add(const QString &text, const QString &sectionId) {
     const QString trimmed = text.trimmed();
     if (trimmed.isEmpty())
         return;
-    // Todoist's quick add can't be told a project, so the task is moved
-    // there after it's made. A #project or a date in the text wins.
+    // Todoist's quick add can't be told a project or section, so the task is
+    // moved there after it's made. A #project or a date in the text wins.
     const QString target = m_view.startsWith("project:") ? m_view.mid(8) : QString();
+    QString section;
+    for (const auto &candidate : sectionsOf(viewProjectId()))
+        if (candidate.id == sectionId)
+            section = candidate.id;
     const bool namesProject = trimmed.contains('#');
     const bool wantsToday = m_view == "today";
     begin();
-    m_client.quickAdd(trimmed, [this, trimmed, target, namesProject, wantsToday](const QJsonObject &result,
-                                                                                  const QString &error) {
+    m_client.quickAdd(trimmed, [this, trimmed, target, section, namesProject, wantsToday](const QJsonObject &result,
+                                                                                           const QString &error) {
         if (!error.isEmpty()) {
             end();
             fail(tr("Couldn't add “%1”. %2").arg(trimmed, error));
             return;
         }
         const Task task = Task::fromJson(result);
-        const bool filing = !target.isEmpty() && !namesProject && task.projectId != target;
+        const bool intoSection = !section.isEmpty() && !namesProject;
+        const bool filing = intoSection || (!target.isEmpty() && !namesProject && task.projectId != target);
         m_redo.clear();
-        // Kept with the project it's filed into, so deleting that project
-        // drops the step too.
-        pushUndo({Step::Added, task.id, trimmed, task, {}, filing ? target : QString()});
+        // Kept with the project and section it's filed into, so deleting
+        // either drops the step too.
+        pushUndo({Step::Added, task.id, trimmed, task, {}, filing ? target : QString(), {}, intoSection ? section : QString()});
         emit added(task.content.isEmpty() ? trimmed : task.content);
 
         auto finish = [this, trimmed](const QString &followUpError) {
@@ -357,7 +516,9 @@ void Backend::add(const QString &text) {
             m_client.update(task.id, QJsonObject{{"due_string", "today"}},
                             [finish](const QJsonObject &, const QString &e) { finish(e); });
         };
-        if (filing)
+        if (intoSection)
+            m_client.moveToSection(task.id, section, [dateIt](const QJsonObject &, const QString &e) { dateIt(e); });
+        else if (filing)
             m_client.move(task.id, target, [dateIt](const QJsonObject &, const QString &e) { dateIt(e); });
         else
             dateIt({});
@@ -472,15 +633,10 @@ void Backend::deleteProject(const QString &projectId) {
     if (m_view.startsWith("project:") && gone.contains(m_view.mid(8)))
         showView("inbox");
     // Steps that touch the deleted projects can't be undone or redone.
-    auto dropSteps = [&gone](QList<Step> &steps) {
-        steps.erase(std::remove_if(steps.begin(), steps.end(), [&gone](const Step &step) {
-                        return gone.contains(step.task.projectId) || gone.contains(step.from) || gone.contains(step.to);
-                    }),
-                    steps.end());
-    };
-    dropSteps(m_undo);
-    dropSteps(m_redo);
-    emit historyChanged();
+    dropSteps([gone](const Step &step) {
+        return gone.contains(step.task.projectId) || gone.contains(step.from) || gone.contains(step.to) ||
+               (step.kind == Step::ProjectMoved && gone.contains(step.taskId));
+    });
 
     begin();
     m_client.deleteProject(projectId, [this, project](const QJsonObject &, const QString &error) {
@@ -492,6 +648,115 @@ void Backend::deleteProject(const QString &projectId) {
         emit projectDeleted(project.name);
         refresh();
     });
+}
+
+void Backend::moveProject(const QString &projectId, const QString &parentId) {
+    const Project project = m_projectsById.value(projectId);
+    if (project.id.isEmpty() || project.inbox || project.parentId == parentId)
+        return;
+    // Not under the Inbox, itself, or one of its own sub-projects.
+    if (!parentId.isEmpty() &&
+        (!m_projectsById.contains(parentId) || m_projectsById.value(parentId).inbox ||
+         parentId == projectId || descendantsOf(projectId).contains(parentId)))
+        return;
+    const Step step{Step::ProjectMoved, projectId, project.name, {}, project.parentId, parentId};
+    applyProjectMove(step, true, [this, step](const ApiError &error) {
+        if (!error.isEmpty()) {
+            fail(tr("Couldn't move “%1”. %2").arg(step.text, error.message));
+            return;
+        }
+        m_redo.clear();
+        pushUndo(step);
+        emit projectMoved(step.text);
+    });
+}
+
+void Backend::applyProjectMove(const Step &step, bool forward, std::function<void(const ApiError &)> done) {
+    begin();
+    m_client.moveProject(step.taskId, forward ? step.to : step.from,
+                         [this, done](const QJsonObject &, const ApiError &error) {
+                             end();
+                             done(error);
+                             // The sidebar's order and nesting come from Todoist.
+                             refresh();
+                         });
+}
+
+void Backend::createSection(const QString &name) {
+    const QString trimmed = name.trimmed();
+    const QString project = viewProjectId();
+    if (trimmed.isEmpty() || project.isEmpty())
+        return;
+    begin();
+    m_client.createSection(trimmed, project, [this, trimmed](const QJsonObject &result, const ApiError &error) {
+        end();
+        if (!error.isEmpty()) {
+            fail(tr("Couldn't create “%1”. %2").arg(trimmed, error.message));
+            return;
+        }
+        // Shown at once, last in its project, before the refresh.
+        Section section = Section::fromJson(result);
+        if (!section.id.isEmpty()) {
+            int last = -1;
+            for (const auto &other : sectionsOf(section.projectId))
+                last = qMax(last, other.order);
+            section.order = qMax(section.order, last + 1);
+            m_sections << section;
+            emit tasksChanged();
+            emit projectsChanged();
+        }
+        emit sectionCreated(trimmed);
+        refresh();
+    });
+}
+
+void Backend::deleteSection(const QString &sectionId) {
+    Section section;
+    for (const auto &candidate : m_sections)
+        if (candidate.id == sectionId)
+            section = candidate;
+    if (section.id.isEmpty())
+        return;
+    // Gone at once, tasks and all; a failure brings them back.
+    QStringList inSection;
+    for (const auto &task : m_tasks)
+        if (task.sectionId == sectionId)
+            inSection << task.id;
+    QSet<QString> tasks;
+    for (const auto &id : inSection)
+        tasks.unite(removeLocally(id));
+    m_sections.removeIf([&](const Section &candidate) { return candidate.id == sectionId; });
+    dropSteps([tasks, sectionId](const Step &step) {
+        return (step.kind != Step::ProjectMoved && tasks.contains(step.taskId)) || step.fromSection == sectionId ||
+               step.toSection == sectionId;
+    });
+    emit tasksChanged();
+    emit projectsChanged();
+    begin();
+    m_client.deleteSection(sectionId, [this, section](const QJsonObject &, const ApiError &error) {
+        end();
+        if (!error.isEmpty()) {
+            fail(tr("Couldn't delete “%1”. %2").arg(section.name, error.message));
+            refresh();
+            return;
+        }
+        emit sectionDeleted(section.name);
+        loadCounts();
+    });
+}
+
+int Backend::subtaskCount(const QString &taskId) const {
+    QSet<QString> found{taskId};
+    bool grew = true;
+    while (grew) {
+        grew = false;
+        for (const auto &task : m_tasks)
+            if (!found.contains(task.id) && found.contains(task.parentId)) {
+                found.insert(task.id);
+                grew = true;
+            }
+    }
+    return int(found.size()) - 1;
 }
 
 const Task *Backend::findTask(const QString &taskId) const {
@@ -521,18 +786,22 @@ void Backend::reloadSoon() {
 
 void Backend::applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done) {
     const QString project = forward ? step.to : step.from;
-    // Leaves a project's list right away; the dated lists just relabel it.
-    if (m_view.startsWith("project:") || m_view == "inbox") {
-        const QString shown = m_view == "inbox" ? inboxId() : m_view.mid(8);
-        if (project != shown)
-            removeLocally(step.taskId);
-    }
-    begin();
-    m_client.move(step.taskId, project, [this, done](const QJsonObject &, const ApiError &error) {
+    const QString section = forward ? step.toSection : step.fromSection;
+    // Leaves a project's list right away; the dated lists just relabel it,
+    // and a move between sections shows on the reload.
+    const QString shown = viewProjectId();
+    if (!shown.isEmpty() && project != shown)
+        removeLocally(step.taskId);
+    auto moved = [this, done](const QJsonObject &, const ApiError &error) {
         end();
         done(error);
         reloadSoon();
-    });
+    };
+    begin();
+    if (!section.isEmpty())
+        m_client.moveToSection(step.taskId, section, moved);
+    else
+        m_client.move(step.taskId, project, moved);
 }
 
 void Backend::applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done) {
@@ -545,11 +814,11 @@ void Backend::applySchedule(const Step &step, bool forward, std::function<void(c
                     });
 }
 
-void Backend::moveTask(const QString &taskId, const QString &projectId) {
+void Backend::moveTask(const QString &taskId, const QString &projectId, const QString &sectionId) {
     const Task *task = findTask(taskId);
-    if (!task || projectId.isEmpty() || task->projectId == projectId)
+    if (!task || projectId.isEmpty() || (task->projectId == projectId && task->sectionId == sectionId))
         return;
-    const Step step{Step::Moved, task->id, task->content, *task, task->projectId, projectId};
+    const Step step{Step::Moved, task->id, task->content, *task, task->projectId, projectId, task->sectionId, sectionId};
     applyMove(step, true, [this, step](const QString &error) {
         if (!error.isEmpty()) {
             fail(tr("Couldn't move “%1”. %2").arg(step.text, error));
@@ -594,7 +863,7 @@ void Backend::undo() {
         return;
     const Step step = m_undo.takeLast();
     emit historyChanged();
-    if (step.kind == Step::Moved || step.kind == Step::Scheduled) {
+    if (step.kind == Step::Moved || step.kind == Step::Scheduled || step.kind == Step::ProjectMoved) {
         auto done = [this, step](const ApiError &error) {
             if (!error.isEmpty()) {
                 undoFailed(step, error);
@@ -605,6 +874,8 @@ void Backend::undo() {
         };
         if (step.kind == Step::Moved)
             applyMove(step, false, done);
+        else if (step.kind == Step::ProjectMoved)
+            applyProjectMove(step, false, done);
         else
             applySchedule(step, false, done);
         return;
@@ -632,7 +903,7 @@ void Backend::redo() {
         return;
     const Step step = m_redo.takeLast();
     emit historyChanged();
-    if (step.kind == Step::Moved || step.kind == Step::Scheduled) {
+    if (step.kind == Step::Moved || step.kind == Step::Scheduled || step.kind == Step::ProjectMoved) {
         auto done = [this, step](const QString &error) {
             if (!error.isEmpty()) {
                 fail(tr("Couldn't redo. %1").arg(error));
@@ -642,6 +913,8 @@ void Backend::redo() {
         };
         if (step.kind == Step::Moved)
             applyMove(step, true, done);
+        else if (step.kind == Step::ProjectMoved)
+            applyProjectMove(step, true, done);
         else
             applySchedule(step, true, done);
         return;

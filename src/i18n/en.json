@@ -6,5 +6,13 @@
   "%n open tasks will be deleted with it.": {
     "one": "%n open task will be deleted with it.",
     "other": "%n open tasks will be deleted with it."
+  },
+  "%n subtasks will be deleted with it.": {
+    "one": "%n subtask will be deleted with it.",
+    "other": "%n subtasks will be deleted with it."
+  },
+  "%n tasks in it will be deleted with it.": {
+    "one": "The task in it will be deleted with it.",
+    "other": "The %n tasks in it will be deleted with it."
   }
 }
