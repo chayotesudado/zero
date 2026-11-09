@@ -101,7 +101,8 @@ private:
         QString taskId;
         QString text;
         Task task;
-        // For a move, the projects; for a reschedule, the due strings.
+        // For a move, the projects; for a reschedule, the due strings; for
+        // an add, to is the project it was filed into, if it was moved there.
         QString from, to;
     };
 
@@ -117,8 +118,9 @@ private:
     QStringList descendantsOf(const QString &projectId) const;
     const Task *findTask(const QString &taskId) const;
     static QString dueStringOf(const Task &task);
-    void applyMove(const Step &step, bool forward, std::function<void(const QString &)> done);
-    void applySchedule(const Step &step, bool forward, std::function<void(const QString &)> done);
+    void applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    void applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    void undoFailed(const Step &step, const ApiError &error);
     void reloadSoon();
 
     Credentials m_credentials;
@@ -134,6 +136,8 @@ private:
     bool m_loaded = false;
     // Responses for a view the user has since left are dropped.
     int m_generation = 0;
+    // The view on screen asked to load before there were projects to load it with.
+    bool m_viewWaiting = false;
     QString m_error;
     QList<Step> m_undo, m_redo;
     QTimer m_poll;

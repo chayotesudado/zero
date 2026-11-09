@@ -85,13 +85,35 @@ QList<Project> parseProjects(const QJsonArray &array) {
             continue;
         projects << Project::fromJson(object);
     }
-    // The Inbox first, then Todoist's own order.
-    std::stable_sort(projects.begin(), projects.end(), [](const Project &a, const Project &b) {
-        if (a.inbox != b.inbox)
-            return a.inbox;
-        return a.order < b.order;
-    });
-    return projects;
+    // Todoist's child_order only ranks siblings, so this walks the tree: the
+    // Inbox first, then each project followed by its sub-projects. One whose
+    // parent isn't listed (archived, say) is shown at the top level.
+    QSet<QString> ids;
+    for (const auto &project : projects)
+        ids.insert(project.id);
+    QHash<QString, QList<Project>> children;
+    for (const auto &project : projects)
+        children[ids.contains(project.parentId) ? project.parentId : QString()] << project;
+    for (auto &list : children)
+        std::stable_sort(list.begin(), list.end(), [](const Project &a, const Project &b) {
+            if (a.inbox != b.inbox)
+                return a.inbox;
+            return a.order < b.order;
+        });
+
+    QList<Project> ordered;
+    QSet<QString> placed;
+    std::function<void(const QString &)> walk = [&](const QString &parent) {
+        for (const auto &project : children.value(parent)) {
+            if (placed.contains(project.id))
+                continue;
+            placed.insert(project.id);
+            ordered << project;
+            walk(project.id);
+        }
+    };
+    walk({});
+    return ordered;
 }
 
 void sortByDue(QList<Task> &tasks) {

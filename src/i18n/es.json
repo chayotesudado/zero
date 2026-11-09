@@ -57,6 +57,7 @@
   "Couldn't complete “%1”. %2": "No se pudo completar “%1”. %2",
   "Couldn't add “%1”. %2": "No se pudo añadir “%1”. %2",
   "Couldn't undo. %1": "No se pudo deshacer. %1",
+  "Couldn't undo “%1”, so it's off the undo list. %2": "No se pudo deshacer “%1”, así que se quitó de la lista para deshacer. %2",
   "Couldn't redo. %1": "No se pudo rehacer. %1",
   "Add to Today (N)": "Añadir a Hoy (N)",
   "Add to %1 (N)": "Añadir a %1 (N)",

@@ -42,7 +42,8 @@ QVariantList Backend::projects() const {
     for (const auto &project : m_projects) {
         if (project.inbox)
             continue;
-        const int level = project.parentId.isEmpty() ? 0 : depth.value(project.parentId) + 1;
+        // Parents come before their sub-projects (Tasks::parseProjects).
+        const int level = depth.contains(project.parentId) ? depth.value(project.parentId) + 1 : 0;
         depth.insert(project.id, level);
         list << QVariantMap{{"id", project.id}, {"name", project.name}, {"colorName", project.color},
                             {"color", Tasks::colorHex(project.color)}, {"depth", level}};
@@ -128,14 +129,20 @@ void Backend::refresh() {
             loadCounts();
             return;
         }
-        if (generation == m_generation)
+        // A view picked while the projects were loading couldn't load then.
+        if (generation == m_generation || m_viewWaiting)
             loadView();
         loadCounts();
     });
 }
 
 void Backend::loadView() {
-    if (!signedIn() || m_projects.isEmpty())
+    if (!signedIn())
+        return;
+    // Every view needs the projects (the Inbox's id, project names); the
+    // refresh that brings them loads this view then.
+    m_viewWaiting = m_projects.isEmpty();
+    if (m_viewWaiting)
         return;
     const int generation = m_generation;
     const QString view = m_view;
@@ -328,8 +335,11 @@ void Backend::add(const QString &text) {
             return;
         }
         const Task task = Task::fromJson(result);
+        const bool filing = !target.isEmpty() && !namesProject && task.projectId != target;
         m_redo.clear();
-        pushUndo({Step::Added, task.id, trimmed, task, {}, {}});
+        // Kept with the project it's filed into, so deleting that project
+        // drops the step too.
+        pushUndo({Step::Added, task.id, trimmed, task, {}, filing ? target : QString()});
         emit added(task.content.isEmpty() ? trimmed : task.content);
 
         auto finish = [this, trimmed](const QString &followUpError) {
@@ -347,7 +357,7 @@ void Backend::add(const QString &text) {
             m_client.update(task.id, QJsonObject{{"due_string", "today"}},
                             [finish](const QJsonObject &, const QString &e) { finish(e); });
         };
-        if (!target.isEmpty() && !namesProject && task.projectId != target)
+        if (filing)
             m_client.move(task.id, target, [dateIt](const QJsonObject &, const QString &e) { dateIt(e); });
         else
             dateIt({});
@@ -509,7 +519,7 @@ void Backend::reloadSoon() {
     loadCounts();
 }
 
-void Backend::applyMove(const Step &step, bool forward, std::function<void(const QString &)> done) {
+void Backend::applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done) {
     const QString project = forward ? step.to : step.from;
     // Leaves a project's list right away; the dated lists just relabel it.
     if (m_view.startsWith("project:") || m_view == "inbox") {
@@ -518,17 +528,17 @@ void Backend::applyMove(const Step &step, bool forward, std::function<void(const
             removeLocally(step.taskId);
     }
     begin();
-    m_client.move(step.taskId, project, [this, done](const QJsonObject &, const QString &error) {
+    m_client.move(step.taskId, project, [this, done](const QJsonObject &, const ApiError &error) {
         end();
         done(error);
         reloadSoon();
     });
 }
 
-void Backend::applySchedule(const Step &step, bool forward, std::function<void(const QString &)> done) {
+void Backend::applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done) {
     begin();
     m_client.update(step.taskId, QJsonObject{{"due_string", forward ? step.to : step.from}},
-                    [this, done](const QJsonObject &, const QString &error) {
+                    [this, done](const QJsonObject &, const ApiError &error) {
                         end();
                         done(error);
                         reloadSoon();
@@ -566,19 +576,31 @@ void Backend::schedule(const QString &taskId, const QString &dueString) {
     });
 }
 
+// A failure that may pass (offline, Todoist busy) keeps the step to try
+// again; one that won't (the task was deleted elsewhere) drops it, so it
+// doesn't block every step under it.
+void Backend::undoFailed(const Step &step, const ApiError &error) {
+    if (error.isTransient()) {
+        fail(tr("Couldn't undo. %1").arg(error.message));
+        m_undo << step;
+    } else {
+        fail(tr("Couldn't undo “%1”, so it's off the undo list. %2").arg(step.text, error.message));
+    }
+    emit historyChanged();
+}
+
 void Backend::undo() {
     if (m_undo.isEmpty())
         return;
     const Step step = m_undo.takeLast();
     emit historyChanged();
     if (step.kind == Step::Moved || step.kind == Step::Scheduled) {
-        auto done = [this, step](const QString &error) {
+        auto done = [this, step](const ApiError &error) {
             if (!error.isEmpty()) {
-                fail(tr("Couldn't undo. %1").arg(error));
-                m_undo << step;
-            } else {
-                m_redo << step;
+                undoFailed(step, error);
+                return;
             }
+            m_redo << step;
             emit historyChanged();
         };
         if (step.kind == Step::Moved)
@@ -588,12 +610,10 @@ void Backend::undo() {
         return;
     }
     begin();
-    auto done = [this, step](const QJsonObject &, const QString &error) {
+    auto done = [this, step](const QJsonObject &, const ApiError &error) {
         end();
         if (!error.isEmpty()) {
-            fail(tr("Couldn't undo. %1").arg(error));
-            m_undo << step;
-            emit historyChanged();
+            undoFailed(step, error);
             return;
         }
         m_redo << step;

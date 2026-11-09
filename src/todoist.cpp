@@ -49,12 +49,12 @@ void Todoist::send(const QByteArray &verb, const QString &path, const QUrlQuery 
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QByteArray data = reply->readAll();
         if (status == 401 || status == 403) {
-            done({}, tr("Todoist didn't accept the API token. Check it under Settings → Integrations → Developer."));
+            done({}, ApiError(tr("Todoist didn't accept the API token. Check it under Settings → Integrations → Developer."), status));
             return;
         }
         if (status == 0 || reply->error() == QNetworkReply::OperationCanceledError ||
             reply->error() == QNetworkReply::TimeoutError) {
-            done({}, tr("Couldn't reach Todoist: %1").arg(reply->errorString()));
+            done({}, ApiError(tr("Couldn't reach Todoist: %1").arg(reply->errorString()), 0));
             return;
         }
         if (status >= 400) {
@@ -65,7 +65,7 @@ void Todoist::send(const QByteArray &verb, const QString &path, const QUrlQuery 
                 message = QString::fromUtf8(data.left(200)).trimmed();
             if (message.isEmpty())
                 message = reply->errorString();
-            done({}, tr("Todoist said %1: %2").arg(status).arg(message));
+            done({}, ApiError(tr("Todoist said %1: %2").arg(status).arg(message), status));
             return;
         }
         if (data.trimmed().isEmpty()) {
@@ -97,7 +97,7 @@ void Todoist::list(const QString &path, QUrlQuery query, ListCallback done) {
         if (!cursor.isEmpty())
             pageQuery.addQueryItem("cursor", cursor);
         ++*pages;
-        self->send("GET", path, pageQuery, {}, [collected, pages, page, done](const QJsonObject &result, const QString &error) {
+        self->send("GET", path, pageQuery, {}, [collected, pages, page, done](const QJsonObject &result, const ApiError &error) {
             if (!error.isEmpty()) {
                 done({}, error);
                 *page = nullptr;

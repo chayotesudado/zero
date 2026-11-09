@@ -7,6 +7,22 @@
 #include <QUrlQuery>
 #include <functional>
 
+// What went wrong with a request: a message to show, and the HTTP status
+// (0 when Todoist couldn't be reached, or nothing was sent). It reads as its
+// message, so callers that only show it can take a QString.
+struct ApiError {
+    QString message;
+    int status = 0;
+
+    ApiError(const QString &message = {}, int status = 0) : message(message), status(status) {}
+    operator QString() const { return message; }
+    bool isEmpty() const { return message.isEmpty(); }
+    // Worth trying again later: Todoist was unreachable, busy, or didn't take
+    // the token. Anything else (a task deleted elsewhere: 404) fails the same
+    // way every time.
+    bool isTransient() const { return status == 0 || status == 401 || status == 403 || status == 429 || status >= 500; }
+};
+
 // A small client for Todoist's API v1. Every call is asynchronous and reports
 // back once, with either a result or a message saying what went wrong.
 // ZERO_API_URL points it somewhere else, which the tests use.
@@ -14,8 +30,8 @@ class Todoist : public QObject {
     Q_OBJECT
 
 public:
-    using ListCallback = std::function<void(const QJsonArray &results, const QString &error)>;
-    using ObjectCallback = std::function<void(const QJsonObject &result, const QString &error)>;
+    using ListCallback = std::function<void(const QJsonArray &results, const ApiError &error)>;
+    using ObjectCallback = std::function<void(const QJsonObject &result, const ApiError &error)>;
 
     explicit Todoist(QObject *parent = nullptr);
 
