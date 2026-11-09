@@ -14,5 +14,9 @@
   "%n tasks in it will be deleted with it.": {
     "one": "The task in it will be deleted with it.",
     "other": "The %n tasks in it will be deleted with it."
+  },
+  "Undoing an add deletes the task from Todoist. %n subtasks will be deleted with it.": {
+    "one": "Undoing an add deletes the task from Todoist. %n subtask will be deleted with it.",
+    "other": "Undoing an add deletes the task from Todoist. %n subtasks will be deleted with it."
   }
 }

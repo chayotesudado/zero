@@ -7,6 +7,8 @@
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
+#include <functional>
 
 #include "credentials.h"
 #include "tasks.h"
@@ -93,6 +95,10 @@ public:
     Q_INVOKABLE void createSection(const QString &name);
     // Todoist deletes the section's tasks with it.
     Q_INVOKABLE void deleteSection(const QString &sectionId);
+    // Undoing an add deletes the task from Todoist for good, so the UI asks
+    // first: when the next undo would, this is {id, text} of that task, and
+    // empty otherwise.
+    Q_INVOKABLE QVariantMap undoDeletes() const;
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void dismissError();
@@ -135,6 +141,8 @@ private:
         QString from, to;
         // For a move or an add, the sections, if any.
         QString fromSection = {}, toSection = {};
+        // For an add made in Today, which dated it today after quick add.
+        bool datedToday = false;
     };
 
     void begin();
@@ -155,6 +163,9 @@ private:
     QStringList descendantsOf(const QString &projectId) const;
     const Task *findTask(const QString &taskId) const;
     static QString dueStringOf(const Task &task);
+    // Files a task quick add just made where an add step says: its section
+    // or project (to, toSection), and dated today if datedToday.
+    void fileAdded(const Task &task, const Step &step, std::function<void(const ApiError &)> done);
     void applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applyProjectMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);

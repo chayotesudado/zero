@@ -149,5 +149,11 @@
   "No parent (top level)": "Sin proyecto padre (nivel superior)",
   "Nothing matches.": "No hay coincidencias.",
   "Project or section": "Proyecto o sección",
-  "no answer for the change": "no hubo respuesta al cambio"
+  "no answer for the change": "no hubo respuesta al cambio",
+  "Undo adding “%1”?": "¿Deshacer la tarea añadida “%1”?",
+  "Undoing an add deletes the task from Todoist.": "Deshacerla la elimina de Todoist.",
+  "Undoing an add deletes the task from Todoist. %n subtasks will be deleted with it.": {
+    "one": "Deshacerla la elimina de Todoist. Se eliminará %n subtarea con ella.",
+    "other": "Deshacerla la elimina de Todoist. Se eliminarán %n subtareas con ella."
+  }
 }

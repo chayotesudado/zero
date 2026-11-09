@@ -104,6 +104,19 @@ ApplicationWindow {
                         project.parentId ? "project:" + project.parentId : "top")
     }
 
+    // Undoing an add deletes the task from Todoist for good, so it asks
+    // first, like Delete does.
+    function undo() {
+        var doomed = backend.undoDeletes()
+        if (!doomed.id) { backend.undo(); return }
+        var subtasks = backend.subtaskCount(doomed.id)
+        confirmDialog.pending = { kind: "undo-add", id: doomed.id }
+        confirmDialog.ask(qsTr("Undo adding “%1”?").arg(doomed.text),
+                          subtasks > 0 ? qsTr("Undoing an add deletes the task from Todoist. %n subtasks will be deleted with it.", "", subtasks)
+                                       : qsTr("Undoing an add deletes the task from Todoist."),
+                          subtasks === 0)
+    }
+
     function deleteRow(row) {
         if (!row) return
         confirmDialog.pending = row
@@ -148,7 +161,7 @@ ApplicationWindow {
     Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("upcoming") }
     Shortcut { sequence: "["; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.stepView(-1) }
     Shortcut { sequence: "]"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.stepView(1) }
-    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; enabled: backend.signedIn && !win.typing; onActivated: backend.undo() }
+    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; enabled: backend.signedIn && !win.typing; onActivated: win.undo() }
     Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn && !win.typing; onActivated: backend.redo() }
 
     Component.onCompleted: if (backend.signedIn) taskList.forceActiveFocus(); else signIn.focusField()
@@ -587,7 +600,11 @@ ApplicationWindow {
             onClosed: taskList.forceActiveFocus()
             onConfirmed: {
                 if (!pending) return
-                if (pending.kind === "section") backend.deleteSection(pending.id)
+                if (pending.kind === "undo-add") {
+                    // Only if that add is still the next undo; something
+                    // may have landed on the stack while this was open.
+                    if (backend.undoDeletes().id === pending.id) backend.undo()
+                } else if (pending.kind === "section") backend.deleteSection(pending.id)
                 else backend.deleteTask(pending.id)
             }
         }

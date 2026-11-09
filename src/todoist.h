@@ -8,15 +8,17 @@
 #include <functional>
 
 // What went wrong with a request: a message to show, and the HTTP status
-// (0 when Todoist couldn't be reached, or nothing was sent). It reads as its
-// message, so callers that only show it can take a QString.
+// (0 when Todoist couldn't be reached; 401 when there's no token to send).
+// It doesn't turn back into a QString on its own, so the status can't be
+// dropped by accident: callers that only show it take .message.
 struct ApiError {
     QString message;
     int status = 0;
 
     ApiError(const QString &message = {}, int status = 0) : message(message), status(status) {}
-    operator QString() const { return message; }
     bool isEmpty() const { return message.isEmpty(); }
+    bool isAuth() const { return status == 401 || status == 403; }
+    bool isNetwork() const { return !isEmpty() && status == 0; }
     // Worth trying again later: Todoist was unreachable, busy, or didn't take
     // the token. Anything else (a task deleted elsewhere: 404) fails the same
     // way every time.
