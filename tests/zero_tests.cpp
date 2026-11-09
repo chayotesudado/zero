@@ -205,19 +205,20 @@ private slots:
         Todoist client;
         client.setToken("good");
         QJsonArray results;
-        QString error;
+        ApiError error;
         bool done = false;
-        client.tasksMatching("today | overdue", [&](const QJsonArray &r, const QString &e) { results = r; error = e; done = true; });
+        client.tasksMatching("today | overdue", [&](const QJsonArray &r, const ApiError &e) { results = r; error = e; done = true; });
         QTRY_VERIFY(done);
-        QCOMPARE(error, QString());
+        QVERIFY(error.isEmpty());
         QCOMPARE(results.size(), 2);
         QVERIFY(server.requests.first().target.startsWith("/tasks/filter?query=today%20%7C%20overdue"));
 
         client.setToken("bad");
         done = false;
-        client.projects([&](const QJsonArray &, const QString &e) { error = e; done = true; });
+        client.projects([&](const QJsonArray &, const ApiError &e) { error = e; done = true; });
         QTRY_VERIFY(done);
-        QVERIFY(error.contains("token"));
+        QVERIFY(error.isAuth());
+        QVERIFY(error.message.contains("token"));
     }
 
     void tokenOnlyGoesToSafePlaces() {
@@ -239,8 +240,8 @@ private slots:
         Todoist client;
         client.setToken("secret");
         bool done = false;
-        QString error;
-        client.projects([&](const QJsonArray &, const QString &e) { error = e; done = true; });
+        ApiError error;
+        client.projects([&](const QJsonArray &, const ApiError &e) { error = e; done = true; });
         QTRY_VERIFY(done);
         QTest::qWait(100);
         QVERIFY(elsewhere.requests.isEmpty());
@@ -256,7 +257,7 @@ private slots:
         Todoist client;
         client.setToken("good");
         bool done = false;
-        client.projects([&](const QJsonArray &, const QString &) { done = true; });
+        client.projects([&](const QJsonArray &, const ApiError &) { done = true; });
         QTRY_VERIFY_WITH_TIMEOUT(done, 30000);
         QCOMPARE(calls, 500);
     }
@@ -366,6 +367,113 @@ private slots:
         backend.add("Milk friday");
         settle();
         QCOMPARE(posts().size(), 1);
+
+        // A "#" that names no project ("PR #42") still files it here.
+        backend.showView("project:work");
+        settle();
+        posts();
+        backend.add("Review PR #42");
+        settle();
+        sent = posts();
+        QCOMPARE(sent.size(), 2);
+        QVERIFY(sent.at(1).startsWith("/tasks/new/move"));
+        QVERIFY(sent.at(1).contains("\"project_id\":\"work\""));
+    }
+
+    void backendAsksBeforeUndoingAnAdd() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/filter")
+                return {200, page({task("a", "Water plants", iso(0))})};
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Milk")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, QJsonDocument(task("new", "Milk")).toJson()};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+
+        // A completion undoes without asking.
+        backend.complete("a");
+        settle();
+        QVERIFY(backend.undoDeletes().isEmpty());
+
+        // An add says which task undoing it would delete.
+        backend.add("Milk");
+        settle();
+        QCOMPARE(backend.undoDeletes().value("id").toString(), QString("new"));
+        QCOMPARE(backend.undoDeletes().value("text").toString(), QString("Milk"));
+    }
+
+    void backendRedoesAnAddWhereItWent() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Milk")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, QJsonDocument(task("new", "Milk")).toJson()};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        auto sentSince = [&](const QByteArray &path, const QByteArray &body) {
+            for (const auto &r : server.requests)
+                if (r.path() == path && r.body.contains(body))
+                    return true;
+            return false;
+        };
+
+        // Into a project: redo moves the new copy there too.
+        backend.showView("project:work");
+        settle();
+        backend.add("Milk");
+        settle();
+        backend.undo();
+        settle();
+        QVERIFY(backend.canRedo());
+        server.requests.clear();
+        backend.redo();
+        settle();
+        QVERIFY(sentSince("/tasks/quick", "Milk"));
+        QVERIFY(sentSince("/tasks/new/move", "\"project_id\":\"work\""));
+        QVERIFY(backend.canUndo());
+
+        // In Today: redo dates it today again.
+        backend.showView("today");
+        settle();
+        backend.add("Milk");
+        settle();
+        backend.undo();
+        settle();
+        server.requests.clear();
+        backend.redo();
+        settle();
+        QVERIFY(sentSince("/tasks/new", "\"due_string\":\"today\""));
+    }
+
+    void errorsKeepTheirStatus() {
+        // No token is refused like a bad one, so it reads as auth, not network.
+        Todoist client;
+        ApiError error;
+        client.close("x", [&](const QJsonObject &, const ApiError &e) { error = e; });
+        QVERIFY(error.isAuth());
+        QVERIFY(!error.isNetwork());
+        QVERIFY(ApiError("Couldn't reach Todoist", 0).isNetwork());
+        QVERIFY(!ApiError().isNetwork());
+        QVERIFY(!ApiError("Todoist said 400: bad token format", 400).isAuth());
     }
 
     void backendMovesAndReschedulesWithUndo() {

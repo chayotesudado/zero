@@ -215,7 +215,7 @@ void Backend::refresh() {
     auto answers = std::make_shared<Answers>();
     auto settled = [this, generation, answers] {
         if (!answers->projectsError.isEmpty()) {
-            loadFailed(answers->projectsError);
+            loadFailed(answers->projectsError.message);
             return;
         }
         m_projects = Tasks::parseProjects(answers->projects);
@@ -223,7 +223,7 @@ void Backend::refresh() {
         if (answers->sectionsError.isEmpty())
             m_sections = Tasks::parseSections(answers->sections);
         else
-            loadFailed(answers->sectionsError);
+            loadFailed(answers->sectionsError.message);
         m_projectsById.clear();
         for (const auto &project : m_projects)
             m_projectsById.insert(project.id, project);
@@ -268,12 +268,12 @@ void Backend::loadView() {
         return;
     const int generation = m_generation;
     const QString view = m_view;
-    auto done = [this, generation, view](const QJsonArray &results, const QString &error) {
+    auto done = [this, generation, view](const QJsonArray &results, const ApiError &error) {
         end();
         if (generation != m_generation)
             return;
         if (!error.isEmpty()) {
-            loadFailed(error);
+            loadFailed(error.message);
             return;
         }
         loadSucceeded();
@@ -298,7 +298,7 @@ void Backend::loadView() {
 
 void Backend::loadCounts() {
     begin();
-    m_client.tasksMatching(todayQuery(), [this](const QJsonArray &results, const QString &error) {
+    m_client.tasksMatching(todayQuery(), [this](const QJsonArray &results, const ApiError &error) {
         end();
         if (error.isEmpty() && int(results.size()) != m_todayCount) {
             m_todayCount = int(results.size());
@@ -309,7 +309,7 @@ void Backend::loadCounts() {
     if (inbox.isEmpty())
         return;
     begin();
-    m_client.tasksInProject(inbox, [this](const QJsonArray &results, const QString &error) {
+    m_client.tasksInProject(inbox, [this](const QJsonArray &results, const ApiError &error) {
         end();
         if (error.isEmpty() && int(results.size()) != m_inboxCount) {
             m_inboxCount = int(results.size());
@@ -334,11 +334,11 @@ void Backend::signIn(const QString &token) {
     auto probe = new Todoist(this);
     probe->setToken(trimmed);
     begin();
-    probe->projects([this, probe, trimmed](const QJsonArray &, const QString &error) {
+    probe->projects([this, probe, trimmed](const QJsonArray &, const ApiError &error) {
         end();
         probe->deleteLater();
         if (!error.isEmpty()) {
-            emit signInFailed(error);
+            emit signInFailed(error.message);
             return;
         }
         const QString saveError = m_credentials.write(trimmed);
@@ -454,10 +454,10 @@ void Backend::complete(const QString &taskId) {
     // Shown done right away; a failure brings it back with the reason.
     removeLocally(taskId);
     begin();
-    m_client.close(taskId, [this, task](const QJsonObject &, const QString &error) {
+    m_client.close(taskId, [this, task](const QJsonObject &, const ApiError &error) {
         end();
         if (!error.isEmpty()) {
-            fail(tr("Couldn't complete “%1”. %2").arg(task.content, error));
+            fail(tr("Couldn't complete “%1”. %2").arg(task.content, error.message));
             loadView();
             loadCounts();
             return;
@@ -478,51 +478,57 @@ void Backend::add(const QString &text, const QString &sectionId) {
     // Todoist's quick add can't be told a project or section, so the task is
     // moved there after it's made. A #project or a date in the text wins.
     const QString target = m_view.startsWith("project:") ? m_view.mid(8) : QString();
+    const QString onScreen = viewProjectId();
+    const QString inbox = inboxId();
     QString section;
-    for (const auto &candidate : sectionsOf(viewProjectId()))
+    for (const auto &candidate : sectionsOf(onScreen))
         if (candidate.id == sectionId)
             section = candidate.id;
-    const bool namesProject = trimmed.contains('#');
     const bool wantsToday = m_view == "today";
     begin();
-    m_client.quickAdd(trimmed, [this, trimmed, target, section, namesProject, wantsToday](const QJsonObject &result,
-                                                                                           const QString &error) {
+    m_client.quickAdd(trimmed, [this, trimmed, target, onScreen, inbox, section, wantsToday](const QJsonObject &result,
+                                                                                              const ApiError &error) {
         if (!error.isEmpty()) {
             end();
-            fail(tr("Couldn't add “%1”. %2").arg(trimmed, error));
+            fail(tr("Couldn't add “%1”. %2").arg(trimmed, error.message));
             return;
         }
         const Task task = Task::fromJson(result);
-        const bool intoSection = !section.isEmpty() && !namesProject;
-        const bool filing = intoSection || (!target.isEmpty() && !namesProject && task.projectId != target);
+        // Quick add only leaves the Inbox when the text named a real project,
+        // which then wins. A "#" that matched nothing ("PR #42") doesn't count.
+        const bool namedProject = task.projectId != inbox && task.projectId != onScreen;
+        Step step{Step::Added, task.id, trimmed, task, {}, namedProject ? QString() : target, {},
+                  namedProject ? QString() : section};
+        step.datedToday = wantsToday && !task.hasDue();
         m_redo.clear();
         // Kept with the project and section it's filed into, so deleting
         // either drops the step too.
-        pushUndo({Step::Added, task.id, trimmed, task, {}, filing ? target : QString(), {}, intoSection ? section : QString()});
+        pushUndo(step);
         emit added(task.content.isEmpty() ? trimmed : task.content);
-
-        auto finish = [this, trimmed](const QString &followUpError) {
+        fileAdded(task, step, [this, trimmed](const ApiError &followUp) {
             end();
-            if (!followUpError.isEmpty())
-                fail(tr("Added “%1”, but couldn't file it here. %2").arg(trimmed, followUpError));
-            loadView();
-            loadCounts();
-        };
-        auto dateIt = [this, task, wantsToday, finish](const QString &moveError) {
-            if (!moveError.isEmpty() || !wantsToday || task.hasDue()) {
-                finish(moveError);
-                return;
-            }
-            m_client.update(task.id, QJsonObject{{"due_string", "today"}},
-                            [finish](const QJsonObject &, const QString &e) { finish(e); });
-        };
-        if (intoSection)
-            m_client.moveToSection(task.id, section, [dateIt](const QJsonObject &, const QString &e) { dateIt(e); });
-        else if (filing)
-            m_client.move(task.id, target, [dateIt](const QJsonObject &, const QString &e) { dateIt(e); });
-        else
-            dateIt({});
+            if (!followUp.isEmpty())
+                fail(tr("Added “%1”, but couldn't file it here. %2").arg(trimmed, followUp.message));
+            reloadSoon();
+        });
     });
+}
+
+void Backend::fileAdded(const Task &task, const Step &step, std::function<void(const ApiError &)> done) {
+    auto dateIt = [this, task, step, done](const ApiError &moveError) {
+        if (!moveError.isEmpty() || !step.datedToday || task.hasDue()) {
+            done(moveError);
+            return;
+        }
+        m_client.update(task.id, QJsonObject{{"due_string", "today"}},
+                        [done](const QJsonObject &, const ApiError &e) { done(e); });
+    };
+    if (!step.toSection.isEmpty())
+        m_client.moveToSection(task.id, step.toSection, [dateIt](const QJsonObject &, const ApiError &e) { dateIt(e); });
+    else if (!step.to.isEmpty() && task.projectId != step.to)
+        m_client.move(task.id, step.to, [dateIt](const QJsonObject &, const ApiError &e) { dateIt(e); });
+    else
+        dateIt({});
 }
 
 QVariantList Backend::colors() const {
@@ -550,12 +556,12 @@ void Backend::setProjectColor(const QString &projectId, const QString &color) {
     recolor(color);
     begin();
     m_client.updateProject(projectId, QJsonObject{{"color", color}},
-                           [this, projectId, previous, recolor](const QJsonObject &, const QString &error) {
+                           [this, projectId, previous, recolor](const QJsonObject &, const ApiError &error) {
                                end();
                                if (!error.isEmpty()) {
                                    recolor(previous);
                                    fail(tr("Couldn't change the color of “%1”. %2")
-                                            .arg(m_projectsById.value(projectId).name, error));
+                                            .arg(m_projectsById.value(projectId).name, error.message));
                                }
                            });
 }
@@ -566,10 +572,10 @@ void Backend::createProject(const QString &name, const QString &color) {
         return;
     begin();
     const QString chosen = Tasks::colorNames().contains(color) ? color : QString();
-    m_client.createProject(trimmed, chosen, [this, trimmed](const QJsonObject &result, const QString &error) {
+    m_client.createProject(trimmed, chosen, [this, trimmed](const QJsonObject &result, const ApiError &error) {
         end();
         if (!error.isEmpty()) {
-            fail(tr("Couldn't create “%1”. %2").arg(trimmed, error));
+            fail(tr("Couldn't create “%1”. %2").arg(trimmed, error.message));
             return;
         }
         const Project project = Project::fromJson(result);
@@ -614,7 +620,7 @@ void Backend::inspectProject(const QString &projectId) {
     for (const auto &id : ids) {
         begin();
         m_client.tasksInProject(id, [this, projectId, names, total, pending, failed](const QJsonArray &results,
-                                                                                       const QString &error) {
+                                                                                       const ApiError &error) {
             end();
             if (!error.isEmpty())
                 *failed = true;
@@ -639,10 +645,10 @@ void Backend::deleteProject(const QString &projectId) {
     });
 
     begin();
-    m_client.deleteProject(projectId, [this, project](const QJsonObject &, const QString &error) {
+    m_client.deleteProject(projectId, [this, project](const QJsonObject &, const ApiError &error) {
         end();
         if (!error.isEmpty()) {
-            fail(tr("Couldn't delete “%1”. %2").arg(project.name, error));
+            fail(tr("Couldn't delete “%1”. %2").arg(project.name, error.message));
             return;
         }
         emit projectDeleted(project.name);
@@ -819,9 +825,9 @@ void Backend::moveTask(const QString &taskId, const QString &projectId, const QS
     if (!task || projectId.isEmpty() || (task->projectId == projectId && task->sectionId == sectionId))
         return;
     const Step step{Step::Moved, task->id, task->content, *task, task->projectId, projectId, task->sectionId, sectionId};
-    applyMove(step, true, [this, step](const QString &error) {
+    applyMove(step, true, [this, step](const ApiError &error) {
         if (!error.isEmpty()) {
-            fail(tr("Couldn't move “%1”. %2").arg(step.text, error));
+            fail(tr("Couldn't move “%1”. %2").arg(step.text, error.message));
             return;
         }
         m_redo.clear();
@@ -835,9 +841,9 @@ void Backend::schedule(const QString &taskId, const QString &dueString) {
     if (!task || wanted.isEmpty())
         return;
     const Step step{Step::Scheduled, task->id, task->content, *task, dueStringOf(*task), wanted};
-    applySchedule(step, true, [this, step](const QString &error) {
+    applySchedule(step, true, [this, step](const ApiError &error) {
         if (!error.isEmpty()) {
-            fail(tr("Couldn't change the date of “%1”. %2").arg(step.text, error));
+            fail(tr("Couldn't change the date of “%1”. %2").arg(step.text, error.message));
             return;
         }
         m_redo.clear();
@@ -856,6 +862,13 @@ void Backend::undoFailed(const Step &step, const ApiError &error) {
         fail(tr("Couldn't undo “%1”, so it's off the undo list. %2").arg(step.text, error.message));
     }
     emit historyChanged();
+}
+
+QVariantMap Backend::undoDeletes() const {
+    if (m_undo.isEmpty() || m_undo.last().kind != Step::Added)
+        return {};
+    const Step &step = m_undo.last();
+    return {{"id", step.taskId}, {"text", step.task.content.isEmpty() ? step.text : step.task.content}};
 }
 
 void Backend::undo() {
@@ -904,9 +917,9 @@ void Backend::redo() {
     const Step step = m_redo.takeLast();
     emit historyChanged();
     if (step.kind == Step::Moved || step.kind == Step::Scheduled || step.kind == Step::ProjectMoved) {
-        auto done = [this, step](const QString &error) {
+        auto done = [this, step](const ApiError &error) {
             if (!error.isEmpty()) {
-                fail(tr("Couldn't redo. %1").arg(error));
+                fail(tr("Couldn't redo. %1").arg(error.message));
                 return;
             }
             pushUndo(step);
@@ -921,10 +934,10 @@ void Backend::redo() {
     }
     if (step.kind == Step::Completed) {
         begin();
-        m_client.close(step.taskId, [this, step](const QJsonObject &, const QString &error) {
+        m_client.close(step.taskId, [this, step](const QJsonObject &, const ApiError &error) {
             end();
             if (!error.isEmpty()) {
-                fail(tr("Couldn't redo. %1").arg(error));
+                fail(tr("Couldn't redo. %1").arg(error.message));
                 return;
             }
             pushUndo(step);
@@ -933,17 +946,24 @@ void Backend::redo() {
         });
     } else {
         // A deleted task can't come back with its old id, so redoing an add
-        // adds the same text again.
+        // adds the same text again, and files and dates it as the first time.
         begin();
-        m_client.quickAdd(step.text, [this, step](const QJsonObject &result, const QString &error) {
-            end();
+        m_client.quickAdd(step.text, [this, step](const QJsonObject &result, const ApiError &error) {
             if (!error.isEmpty()) {
-                fail(tr("Couldn't redo. %1").arg(error));
+                end();
+                fail(tr("Couldn't redo. %1").arg(error.message));
                 return;
             }
-            pushUndo({Step::Added, Task::fromJson(result).id, step.text, Task::fromJson(result), {}, {}});
-            loadView();
-            loadCounts();
+            Step again = step;
+            again.task = Task::fromJson(result);
+            again.taskId = again.task.id;
+            pushUndo(again);
+            fileAdded(again.task, again, [this, step](const ApiError &followUp) {
+                end();
+                if (!followUp.isEmpty())
+                    fail(tr("Added “%1”, but couldn't file it here. %2").arg(step.text, followUp.message));
+                reloadSoon();
+            });
         });
     }
 }

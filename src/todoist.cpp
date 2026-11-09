@@ -32,7 +32,8 @@ Todoist::Todoist(QObject *parent)
 void Todoist::send(const QByteArray &verb, const QString &path, const QUrlQuery &query, const QByteArray &body,
                    ObjectCallback done) {
     if (m_token.isEmpty()) {
-        done({}, tr("Not signed in to Todoist."));
+        // Counts as Todoist refusing it: there's no token to accept.
+        done({}, ApiError(tr("Not signed in to Todoist."), 401));
         return;
     }
     QUrl url(m_base + path);

@@ -88,22 +88,22 @@ void wait(Call call) {
 struct Listing {
     QList<Task> tasks;
     QHash<QString, Project> projects;
-    QString error;
+    ApiError error;
 };
 
 Listing fetch(Todoist &client, const QString &filter) {
     Listing listing;
     QJsonArray tasks, projects;
-    QString taskError, projectError;
+    ApiError taskError, projectError;
     int pending = 2;
     QEventLoop loop;
-    client.tasksMatching(filter, [&](const QJsonArray &results, const QString &error) {
+    client.tasksMatching(filter, [&](const QJsonArray &results, const ApiError &error) {
         tasks = results;
         taskError = error;
         if (--pending == 0)
             loop.quit();
     });
-    client.projects([&](const QJsonArray &results, const QString &error) {
+    client.projects([&](const QJsonArray &results, const ApiError &error) {
         projects = results;
         projectError = error;
         if (--pending == 0)
@@ -119,17 +119,21 @@ Listing fetch(Todoist &client, const QString &filter) {
     return listing;
 }
 
-QString errorCode(const QString &message) {
-    if (message.contains("token") || message.contains("signed in"))
+// What the bar plugin and scripts branch on, from the HTTP status, never the
+// (translatable) message.
+QString errorCode(const ApiError &error) {
+    if (error.isAuth())
         return "auth";
-    if (message.contains("reach"))
+    if (error.isNetwork())
         return "network";
     return "api";
 }
 
+int failure(bool json, const ApiError &error) { return failure(json, errorCode(error), error.message); }
+
 int printListing(const Listing &listing, bool json) {
     if (!listing.error.isEmpty())
-        return failure(json, errorCode(listing.error), listing.error);
+        return failure(json, listing.error);
     const QDateTime now = QDateTime::currentDateTime();
     if (json) {
         QJsonArray tasks;
@@ -236,12 +240,13 @@ int run(const QStringList &all) {
         if (pasted.isEmpty())
             return failure(json, "usage", tr("Pipe the API token in: zero login < token.txt"));
         client.setToken(pasted);
-        QString error;
-        wait([&](auto finish) { client.projects([&, finish](const QJsonArray &, const QString &e) { error = e; finish(); }); });
-        if (error.isEmpty())
-            error = credentials.write(pasted);
+        ApiError error;
+        wait([&](auto finish) { client.projects([&, finish](const QJsonArray &, const ApiError &e) { error = e; finish(); }); });
         if (!error.isEmpty())
-            return failure(json, errorCode(error), error);
+            return failure(json, error);
+        const QString saveError = credentials.write(pasted);
+        if (!saveError.isEmpty())
+            return failure(json, "io", saveError);
         if (json)
             printJson({{"ok", true}});
         else
@@ -277,12 +282,12 @@ int run(const QStringList &all) {
         if (text.isEmpty())
             return failure(json, "usage", tr("Usage: zero add <text>"));
         QJsonObject result;
-        QString error;
+        ApiError error;
         wait([&](auto finish) {
-            client.quickAdd(text, [&, finish](const QJsonObject &r, const QString &e) { result = r; error = e; finish(); });
+            client.quickAdd(text, [&, finish](const QJsonObject &r, const ApiError &e) { result = r; error = e; finish(); });
         });
         if (!error.isEmpty())
-            return failure(json, errorCode(error), error);
+            return failure(json, error);
         const Task task = Task::fromJson(result);
         if (json)
             printJson({{"ok", true}, {"task", Tasks::toJson(task, QDateTime::currentDateTime(), {})}});
@@ -295,10 +300,10 @@ int run(const QStringList &all) {
         const QString id = arguments.value(0);
         if (id.isEmpty())
             return failure(json, "usage", tr("Usage: zero done <task id>"));
-        QString error;
-        wait([&](auto finish) { client.close(id, [&, finish](const QJsonObject &, const QString &e) { error = e; finish(); }); });
+        ApiError error;
+        wait([&](auto finish) { client.close(id, [&, finish](const QJsonObject &, const ApiError &e) { error = e; finish(); }); });
         if (!error.isEmpty())
-            return failure(json, errorCode(error), error);
+            return failure(json, error);
         if (json)
             printJson({{"ok", true}, {"id", id}});
         return 0;
