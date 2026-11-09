@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QUuid>
 #include <memory>
 
 
@@ -176,4 +177,56 @@ void Todoist::deleteProject(const QString &projectId, ObjectCallback done) {
 void Todoist::updateProject(const QString &projectId, const QJsonObject &fields, ObjectCallback done) {
     send("POST", "/projects/" + QUrl::toPercentEncoding(projectId), {},
          QJsonDocument(fields).toJson(QJsonDocument::Compact), std::move(done));
+}
+
+void Todoist::moveToSection(const QString &taskId, const QString &sectionId, ObjectCallback done) {
+    const QByteArray body = QJsonDocument(QJsonObject{{"section_id", sectionId}}).toJson(QJsonDocument::Compact);
+    send("POST", "/tasks/" + QUrl::toPercentEncoding(taskId) + "/move", {}, body, std::move(done));
+}
+
+void Todoist::sections(const QString &projectId, ListCallback done) {
+    QUrlQuery query;
+    if (!projectId.isEmpty())
+        query.addQueryItem("project_id", projectId);
+    list("/sections", query, std::move(done));
+}
+
+void Todoist::createSection(const QString &name, const QString &projectId, ObjectCallback done) {
+    const QByteArray body =
+        QJsonDocument(QJsonObject{{"name", name}, {"project_id", projectId}}).toJson(QJsonDocument::Compact);
+    send("POST", "/sections", {}, body, std::move(done));
+}
+
+void Todoist::deleteSection(const QString &sectionId, ObjectCallback done) {
+    send("DELETE", "/sections/" + QUrl::toPercentEncoding(sectionId), {}, {}, std::move(done));
+}
+
+void Todoist::moveProject(const QString &projectId, const QString &parentId, ObjectCallback done) {
+    command("project_move",
+            QJsonObject{{"id", projectId}, {"parent_id", parentId.isEmpty() ? QJsonValue() : QJsonValue(parentId)}},
+            std::move(done));
+}
+
+void Todoist::command(const QString &type, const QJsonObject &args, ObjectCallback done) {
+    const QString uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QJsonArray commands{QJsonObject{{"type", type}, {"uuid", uuid}, {"args", args}}};
+    const QByteArray body = QJsonDocument(QJsonObject{{"commands", commands}}).toJson(QJsonDocument::Compact);
+    send("POST", "/sync", {}, body, [uuid, done](const QJsonObject &result, const ApiError &error) {
+        if (!error.isEmpty()) {
+            done({}, error);
+            return;
+        }
+        const QJsonValue status = result.value("sync_status").toObject().value(uuid);
+        if (status.toString() == "ok") {
+            done(result, {});
+            return;
+        }
+        // {"error": "...", "http_code": 400, ...}, or nothing back at all.
+        const QJsonObject failure = status.toObject();
+        QString message = failure.value("error").toString();
+        if (message.isEmpty())
+            message = tr("no answer for the change");
+        const int code = failure.value("http_code").toInt(400);
+        done({}, ApiError(tr("Todoist said %1: %2").arg(code).arg(message), code));
+    });
 }

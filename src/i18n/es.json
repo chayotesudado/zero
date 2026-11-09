@@ -123,5 +123,31 @@
   "Color for “%1”": "Color de “%1”",
   "Change color…": "Cambiar color…",
   "Change the project's color": "Cambiar el color del proyecto",
-  "Couldn't change the color of “%1”. %2": "No se pudo cambiar el color de “%1”. %2"
+  "Couldn't change the color of “%1”. %2": "No se pudo cambiar el color de “%1”. %2",
+  "%n subtasks will be deleted with it.": {
+    "one": "Se eliminará %n subtarea con ella.",
+    "other": "Se eliminarán %n subtareas con ella."
+  },
+  "%n tasks in it will be deleted with it.": {
+    "one": "Se eliminará la tarea que contiene.",
+    "other": "Se eliminarán las %n tareas que contiene."
+  },
+  "Add a task to this list (into the selected section)": "Añadir una tarea a esta lista (en la sección seleccionada)",
+  "Add task": "Añadir tarea",
+  "Add to %1 / %2 (N)": "Añadir a %1 / %2 (N)",
+  "Added the section “%1”.": "Se añadió la sección “%1”.",
+  "Delete the section “%1”?": "¿Eliminar la sección “%1”?",
+  "Delete the selected task or section": "Eliminar la tarea o sección seleccionada",
+  "Deleted the section “%1”.": "Se eliminó la sección “%1”.",
+  "It has no tasks.": "No tiene tareas.",
+  "Move the project under another": "Mover el proyecto dentro de otro",
+  "Move under…": "Mover dentro de…",
+  "Move “%1” under": "Mover “%1” dentro de",
+  "Moved “%1”. Ctrl+Z to undo.": "Se movió “%1”. Ctrl+Z para deshacer.",
+  "New section in %1": "Nueva sección en %1",
+  "New section in this project": "Nueva sección en este proyecto",
+  "No parent (top level)": "Sin proyecto padre (nivel superior)",
+  "Nothing matches.": "No hay coincidencias.",
+  "Project or section": "Proyecto o sección",
+  "no answer for the change": "no hubo respuesta al cambio"
 }

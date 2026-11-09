@@ -17,6 +17,7 @@ Item {
     signal selectRequested()
     signal scheduleRequested()
     signal moveRequested()
+    signal deleteRequested()
 
     readonly property bool completing: tick.running || done
     property bool done: false
@@ -136,13 +137,14 @@ Item {
             }
         }
 
-        // Date and move, shown on hover and on the selected task.
+        // Date, move, and delete, shown on hover and on the selected task.
         RowLayout {
             Layout.alignment: Qt.AlignTop
             visible: hover.hovered || row.selected
             spacing: 2
             RowAction { text: qsTr("Date"); onClicked: row.scheduleRequested() }
             RowAction { text: qsTr("Move"); onClicked: row.moveRequested() }
+            RowAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
         }
 
         // The project, on the right, when the list mixes projects.
@@ -164,12 +166,13 @@ Item {
 
     component RowAction: Label {
         id: action
+        property bool danger: false
         signal clicked()
         padding: 4
         leftPadding: 8
         rightPadding: 8
         font.pixelSize: 11
-        color: actionHover.hovered ? theme.accent : theme.dimForeground
+        color: actionHover.hovered ? (danger ? theme.red : theme.accent) : theme.dimForeground
         background: Rectangle {
             radius: Math.min(4, theme.radius)
             color: actionHover.hovered ? theme.tint(0.06) : "transparent"

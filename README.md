@@ -30,19 +30,22 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | Key | Action |
 | --- | --- |
 | Space | Complete the selected task |
-| N | Add a task to the list on screen (Todoist quick add: dates, `#Project`, `@label`, `p1`) |
-| M | Move the selected task to another project |
+| N | Add a task to the list on screen, into the selected section if there is one (Todoist quick add: dates, `#Project`, `@label`, `p1`) |
+| M | Move the selected task to another project or section |
 | D | Change the selected task's due date (“fri 5pm”, “every monday”, “no date”) |
 | T | Make the selected task due today |
 | J / ↓, K / ↑ | Next / previous task |
 | O | Open the selected task in Todoist |
+| Delete | Delete the selected task, or the selected section with its tasks (asks first) |
+| S | New section in the project or Inbox on screen |
 | 1 / 2 / 3 | Inbox / Today / Upcoming |
 | [ / ] | Previous / next list, through every project |
 | P | New project |
 | C | Change the color of the project on screen |
+| Shift+M | Move the project on screen under another, or back to the top level |
 | Ctrl+Delete | Delete the project on screen (asks first) |
 | R | Refresh |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo a completion, add, move, or date change |
+| Ctrl+Z / Ctrl+Shift+Z | Undo / redo a completion, add, move, date change, or project move |
 | Esc | Leave the add box |
 | ? | Show every shortcut |
 | Q | Quit |
@@ -52,9 +55,15 @@ in that project, and Today dates it today. A `#Project` or a date typed in
 the text wins. Upcoming and the bar widget add to the Inbox. Hovering a task
 (or selecting it) shows Date and Move buttons too.
 
+A project's sections show as headings in its list, empty ones included.
+Select a heading with J/K or a click: N then adds into that section, and
+Delete deletes it along with its tasks, as Todoist does. Deleting a task
+asks first and can't be undone, since Todoist has no way to bring it back.
+
 Projects are created with the + beside "Projects" in the sidebar (or P),
 with one of Todoist's 20 project colors so it looks the same there, and
-recolored or deleted from the ⋯ menu that appears on hover (or right-click). Deleting asks
+recolored, moved under another project, or deleted from the ⋯ menu that
+appears on hover (or right-click). Deleting asks
 first and says how many tasks and sub-projects go with it, since Todoist
 deletes those too and it can't be undone.
 

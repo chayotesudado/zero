@@ -26,9 +26,11 @@ ApplicationWindow {
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
     readonly property bool pickerOpen: movePicker.opened || schedulePicker.opened
                                        || newProjectDialog.opened || deleteProjectDialog.opened
-                                       || projectColorDialog.opened
+                                       || projectColorDialog.opened || sectionDialog.opened || confirmDialog.opened
     readonly property bool keysLive: backend.signedIn && !typing && !helpVisible && !pickerOpen
     readonly property string today: Dates.isoToday()
+    // Projects and the Inbox have sections; the dated lists don't.
+    readonly property bool sectionsHere: backend.view === "inbox" || backend.view.indexOf("project:") === 0
 
     // The lists in the order [ and ] walk through them.
     readonly property var views: {
@@ -36,6 +38,11 @@ ApplicationWindow {
         for (var i = 0; i < backend.projects.length; i++)
             list.push("project:" + backend.projects[i].id)
         return list
+    }
+
+    function toastShow(message) {
+        toast.message = message
+        toastTimer.restart()
     }
 
     function stepView(delta) {
@@ -50,14 +57,65 @@ ApplicationWindow {
         return null
     }
 
+    // The selected row: a task, or a section's heading.
+    function selectedRow() {
+        var rows = backend.rows
+        return taskList.currentIndex >= 0 && taskList.currentIndex < rows.length ? rows[taskList.currentIndex] : null
+    }
+
     function selectedTask() {
-        return taskList.currentIndex >= 0 && taskList.currentIndex < backend.tasks.length
-            ? backend.tasks[taskList.currentIndex] : null
+        var row = selectedRow()
+        return row && row.kind === "task" ? row : null
     }
 
     function completeSelected() {
         var item = taskList.itemAtIndex(taskList.currentIndex)
         if (item) item.complete()
+    }
+
+    // The section a new task goes into: the selected heading's, or the
+    // selected task's.
+    function addSection() {
+        var row = sectionsHere ? selectedRow() : null
+        if (!row) return ""
+        return row.kind === "section" ? row.id : (row.sectionId || "")
+    }
+
+    function sectionName(id) {
+        var rows = backend.rows
+        for (var i = 0; i < rows.length; i++)
+            if (rows[i].kind === "section" && rows[i].id === id) return rows[i].name
+        return ""
+    }
+
+    function moveTask(task) {
+        if (!task) return
+        movePicker.target = task
+        movePicker.mode = "task"
+        movePicker.show(qsTr("Move “%1” to").arg(task.content), backend.destinations,
+                        task.sectionId ? "section:" + task.sectionId : "project:" + task.projectId)
+    }
+
+    function moveProject(project) {
+        if (!project) return
+        movePicker.target = project
+        movePicker.mode = "project"
+        movePicker.show(qsTr("Move “%1” under").arg(project.name), backend.parentChoices(project.id),
+                        project.parentId ? "project:" + project.parentId : "top")
+    }
+
+    function deleteRow(row) {
+        if (!row) return
+        confirmDialog.pending = row
+        if (row.kind === "section") {
+            confirmDialog.ask(qsTr("Delete the section “%1”?").arg(row.name),
+                              row.count > 0 ? qsTr("%n tasks in it will be deleted with it.", "", row.count)
+                                            : qsTr("It has no tasks."), false)
+        } else {
+            var subtasks = backend.subtaskCount(row.id)
+            confirmDialog.ask(qsTr("Delete “%1”?").arg(row.content),
+                              subtasks > 0 ? qsTr("%n subtasks will be deleted with it.", "", subtasks) : "", subtasks === 0)
+        }
     }
 
     Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.helpVisible = !win.helpVisible }
@@ -70,7 +128,12 @@ ApplicationWindow {
     Shortcut { sequences: ["K", "Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: taskList.moveSelection(-1) }
     Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) Qt.openUrlExternally(t.url) } }
-    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: movePicker.openFor(win.selectedTask()) }
+    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.moveTask(win.selectedTask()) }
+    Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
+        onActivated: win.moveProject(win.currentProject()) }
+    Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.deleteRow(win.selectedRow()) }
+    Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
+        onActivated: sectionDialog.openNew(backend.viewName) }
     Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: schedulePicker.openFor(win.selectedTask()) }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) backend.schedule(t.id, "today") } }
@@ -300,8 +363,10 @@ ApplicationWindow {
                     selectionColor: theme.selection
                     selectedTextColor: theme.foreground
                     // Says where a new task lands, since that depends on the list.
+                    readonly property string section: (taskList.currentIndex, backend.rows, win.sectionName(win.addSection()))
                     placeholderText: backend.view === "today" ? qsTr("Add to Today (N)")
                                    : backend.view === "upcoming" ? qsTr("Add a task (N)")
+                                   : section !== "" ? qsTr("Add to %1 / %2 (N)").arg(backend.viewName).arg(section)
                                    : qsTr("Add to %1 (N)").arg(backend.viewName)
                     background: Rectangle {
                         radius: Math.min(6, theme.radius)
@@ -311,7 +376,7 @@ ApplicationWindow {
                     }
                     onAccepted: {
                         if (text.trim() === "") return
-                        backend.add(text)
+                        backend.add(text, win.addSection())
                         text = ""
                     }
                 }
@@ -342,7 +407,7 @@ ApplicationWindow {
                     keyNavigationEnabled: false
                     boundsBehavior: Flickable.StopAtBounds
                     highlightMoveDuration: 0
-                    model: backend.tasks
+                    model: backend.rows
                     currentIndex: -1
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -351,17 +416,17 @@ ApplicationWindow {
                     // currentIndex on its own, so it's restored after one.
                     property string selectedId: ""
                     function select(i) {
-                        var tasks = backend.tasks
-                        if (tasks.length === 0) { currentIndex = -1; selectedId = ""; return }
-                        currentIndex = Math.max(0, Math.min(i, tasks.length - 1))
-                        selectedId = tasks[currentIndex].id
+                        var rows = backend.rows
+                        if (rows.length === 0) { currentIndex = -1; selectedId = ""; return }
+                        currentIndex = Math.max(0, Math.min(i, rows.length - 1))
+                        selectedId = rows[currentIndex].key
                         positionViewAtIndex(currentIndex, ListView.Contain)
                     }
                     function moveSelection(delta) { select(currentIndex < 0 ? 0 : currentIndex + delta) }
                     function restoreSelection(previous) {
-                        var tasks = backend.tasks
-                        for (var i = 0; i < tasks.length; i++)
-                            if (tasks[i].id === selectedId) { currentIndex = i; return }
+                        var rows = backend.rows
+                        for (var i = 0; i < rows.length; i++)
+                            if (rows[i].key === selectedId) { currentIndex = i; return }
                         if (selectedId === "") { currentIndex = -1; return }
                         select(previous)
                     }
@@ -401,22 +466,51 @@ ApplicationWindow {
                         }
                     }
 
-                    delegate: TaskRow {
+                    // A task, or a section's heading.
+                    delegate: Item {
+                        id: entry
                         required property var modelData
                         required property int index
+                        readonly property bool isSection: modelData.kind === "section"
+                        readonly property bool current: ListView.isCurrentItem
                         width: ListView.view.width
-                        task: modelData
-                        selected: ListView.isCurrentItem
-                        showProject: taskList.grouped
-                        onSelectRequested: { taskList.select(index); taskList.forceActiveFocus() }
-                        onCompleteRequested: backend.complete(modelData.id)
-                        onScheduleRequested: { taskList.select(index); schedulePicker.openFor(modelData) }
-                        onMoveRequested: { taskList.select(index); movePicker.openFor(modelData) }
+                        height: loader.item ? loader.item.implicitHeight : 0
+
+                        function complete() { if (!isSection && loader.item) loader.item.complete() }
+
+                        Loader {
+                            id: loader
+                            width: parent.width
+                            sourceComponent: entry.isSection ? sectionComponent : taskComponent
+                        }
+                        Component {
+                            id: taskComponent
+                            TaskRow {
+                                task: entry.modelData
+                                selected: entry.current
+                                showProject: taskList.grouped
+                                onSelectRequested: { taskList.select(entry.index); taskList.forceActiveFocus() }
+                                onCompleteRequested: backend.complete(entry.modelData.id)
+                                onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
+                                onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
+                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                            }
+                        }
+                        Component {
+                            id: sectionComponent
+                            SectionRow {
+                                section: entry.modelData
+                                selected: entry.current
+                                onSelectRequested: { taskList.select(entry.index); taskList.forceActiveFocus() }
+                                onAddRequested: { taskList.select(entry.index); addField.forceActiveFocus() }
+                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                            }
+                        }
                     }
 
                     Column {
                         anchors.centerIn: parent
-                        visible: backend.loaded && backend.tasks.length === 0
+                        visible: backend.loaded && backend.rows.length === 0
                         spacing: 8
                         Label {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -471,7 +565,31 @@ ApplicationWindow {
 
         MovePicker {
             id: movePicker
+            // What's moving: a task, or a project under another.
+            property string mode: "task"
+            property var target: null
             onClosed: taskList.forceActiveFocus()
+            onChosen: function(item) {
+                if (!target) return
+                if (mode === "project") backend.moveProject(target.id, item.projectId)
+                else backend.moveTask(target.id, item.projectId, item.sectionId)
+            }
+        }
+
+        SectionDialog {
+            id: sectionDialog
+            onClosed: taskList.forceActiveFocus()
+        }
+
+        ConfirmDialog {
+            id: confirmDialog
+            property var pending: null
+            onClosed: taskList.forceActiveFocus()
+            onConfirmed: {
+                if (!pending) return
+                if (pending.kind === "section") backend.deleteSection(pending.id)
+                else backend.deleteTask(pending.id)
+            }
         }
 
         SchedulePicker {
@@ -503,6 +621,10 @@ ApplicationWindow {
                 onTriggered: projectColorDialog.openFor(projectMenu.project)
             }
             MenuItem {
+                text: qsTr("Move under…")
+                onTriggered: win.moveProject(projectMenu.project)
+            }
+            MenuItem {
                 text: qsTr("Delete project…")
                 onTriggered: deleteProjectDialog.openFor(projectMenu.project)
             }
@@ -510,10 +632,11 @@ ApplicationWindow {
 
         Connections {
             target: backend
-            function onProjectDeleted(name) {
-                toast.message = qsTr("Deleted “%1”.").arg(name)
-                toastTimer.restart()
-            }
+            function onProjectDeleted(name) { win.toastShow(qsTr("Deleted “%1”.").arg(name)) }
+            function onTaskDeleted(content) { win.toastShow(qsTr("Deleted “%1”.").arg(content)) }
+            function onSectionDeleted(name) { win.toastShow(qsTr("Deleted the section “%1”.").arg(name)) }
+            function onSectionCreated(name) { win.toastShow(qsTr("Added the section “%1”.").arg(name)) }
+            function onProjectMoved(name) { win.toastShow(qsTr("Moved “%1”. Ctrl+Z to undo.").arg(name)) }
         }
 
         HelpOverlay {

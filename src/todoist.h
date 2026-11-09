@@ -60,6 +60,16 @@ public:
     // Todoist deletes the project's tasks and sub-projects with it.
     void deleteProject(const QString &projectId, ObjectCallback done);
     void move(const QString &taskId, const QString &projectId, ObjectCallback done);
+    // Into a section, and so into the section's project.
+    void moveToSection(const QString &taskId, const QString &sectionId, ObjectCallback done);
+    // Every section, or a project's.
+    void sections(const QString &projectId, ListCallback done);
+    void createSection(const QString &name, const QString &projectId, ObjectCallback done);
+    // Todoist deletes the section's tasks with it.
+    void deleteSection(const QString &sectionId, ObjectCallback done);
+    // Makes a project a sub-project of another, or top-level when parentId
+    // is empty. REST can't, so this is a Sync API command.
+    void moveProject(const QString &projectId, const QString &parentId, ObjectCallback done);
     // Fields as Todoist's update takes them, e.g. {"due_string": "tomorrow"}.
     void update(const QString &taskId, const QJsonObject &fields, ObjectCallback done);
 
@@ -67,6 +77,9 @@ public:
     void list(const QString &path, QUrlQuery query, ListCallback done);
 
 private:
+    // One Sync API command; its own failure (reported inside a 200) counts
+    // as an error like any other.
+    void command(const QString &type, const QJsonObject &args, ObjectCallback done);
     void send(const QByteArray &verb, const QString &path, const QUrlQuery &query, const QByteArray &body,
               ObjectCallback done);
 

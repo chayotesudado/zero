@@ -1,0 +1,92 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Controls.Material
+import QtQuick.Layouts
+
+// A section's heading in a project's list. It can be selected like a task:
+// N then adds into it, and Delete deletes it.
+Item {
+    id: row
+
+    property var section: ({})
+    property bool selected: false
+    signal selectRequested()
+    signal addRequested()
+    signal deleteRequested()
+
+    implicitHeight: 46
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.leftMargin: 4
+        anchors.rightMargin: 4
+        anchors.topMargin: 8
+        radius: Math.min(6, theme.radius)
+        color: row.selected ? theme.tint(0.07) : hover.hovered ? theme.tint(0.035) : "transparent"
+        border.width: row.selected ? 1 : 0
+        border.color: Qt.alpha(theme.accent, 0.55)
+    }
+
+    HoverHandler { id: hover }
+    TapHandler { onTapped: row.selectRequested() }
+
+    RowLayout {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.bottomMargin: 8
+        spacing: 10
+
+        Label {
+            Layout.fillWidth: true
+            text: row.section.name || ""
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            font.pixelSize: 14
+            font.bold: true
+            color: theme.foreground
+        }
+        Label {
+            visible: (row.section.count || 0) > 0
+            text: (row.section.count || 0).toLocaleString(Qt.locale(), 'f', 0)
+            font.pixelSize: 12
+            color: theme.dimForeground
+        }
+        RowLayout {
+            visible: hover.hovered || row.selected
+            spacing: 2
+            HeadingAction { text: qsTr("Add task"); onClicked: row.addRequested() }
+            HeadingAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
+        }
+    }
+
+    // The underline that marks a heading, as in Todoist.
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        height: 1
+        color: theme.lighterBackground
+    }
+
+    component HeadingAction: Label {
+        id: action
+        property bool danger: false
+        signal clicked()
+        padding: 4
+        leftPadding: 8
+        rightPadding: 8
+        font.pixelSize: 11
+        color: actionHover.hovered ? (danger ? theme.red : theme.accent) : theme.dimForeground
+        background: Rectangle {
+            radius: Math.min(4, theme.radius)
+            color: actionHover.hovered ? theme.tint(0.06) : "transparent"
+        }
+        HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
+        TapHandler { onTapped: action.clicked() }
+    }
+}

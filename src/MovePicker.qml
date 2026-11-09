@@ -3,35 +3,42 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// Picks the project a task moves to: type to filter, arrows to choose,
-// Enter to move.
+// Picks where something moves: a task to a project or section, or a
+// project under another. Type to filter, arrows to choose, Enter to move.
+// Items are {key, kind, name, path, depth, color, inbox}, as the backend's
+// destinations and parentChoices give them.
 Popup {
     id: picker
 
-    property var task: null
+    property string title: ""
+    property var items: []
+    // The item it's in now, marked "current".
+    property string currentKey: ""
+    signal chosen(var item)
+
     readonly property var matches: {
         var query = filter.text.trim().toLowerCase()
-        var list = backend.destinations
         var out = []
-        for (var i = 0; i < list.length; i++)
-            if (query === "" || list[i].name.toLowerCase().indexOf(query) >= 0)
-                out.push(list[i])
+        for (var i = 0; i < items.length; i++)
+            if (query === "" || items[i].path.toLowerCase().indexOf(query) >= 0)
+                out.push(items[i])
         return out
     }
 
-    function openFor(t) {
-        if (!t) return
-        task = t
+    function show(heading, list, current) {
+        title = heading
+        items = list
+        currentKey = current || ""
         filter.text = ""
-        list.currentIndex = 0
+        listView.currentIndex = 0
         open()
         filter.forceActiveFocus()
     }
 
     function choose(index) {
         var target = matches[index]
-        if (task && target) backend.moveTask(task.id, target.id)
         close()
+        if (target) chosen(target)
     }
 
     modal: true
@@ -49,7 +56,7 @@ Popup {
 
         Label {
             Layout.fillWidth: true
-            text: picker.task ? qsTr("Move “%1” to").arg(picker.task.content) : ""
+            text: picker.title
             textFormat: Text.PlainText
             elide: Text.ElideRight
             font.pixelSize: 16
@@ -60,16 +67,16 @@ Popup {
         TextField {
             id: filter
             Layout.fillWidth: true
-            placeholderText: qsTr("Project")
+            placeholderText: qsTr("Project or section")
             Material.roundedScale: theme.radius
-            Keys.onDownPressed: list.incrementCurrentIndex()
-            Keys.onUpPressed: list.decrementCurrentIndex()
-            onTextChanged: list.currentIndex = 0
-            onAccepted: picker.choose(list.currentIndex)
+            Keys.onDownPressed: listView.incrementCurrentIndex()
+            Keys.onUpPressed: listView.decrementCurrentIndex()
+            onTextChanged: listView.currentIndex = 0
+            onAccepted: picker.choose(listView.currentIndex)
         }
 
         ListView {
-            id: list
+            id: listView
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(contentHeight, 320)
             clip: true
@@ -81,7 +88,7 @@ Popup {
             delegate: Rectangle {
                 required property var modelData
                 required property int index
-                readonly property bool here: picker.task && picker.task.projectId === modelData.id
+                readonly property bool here: modelData.key === picker.currentKey
                 width: ListView.view.width
                 height: 36
                 radius: Math.min(6, theme.radius)
@@ -92,17 +99,27 @@ Popup {
                     anchors.leftMargin: 12 + modelData.depth * 14
                     anchors.rightMargin: 12
                     spacing: 10
-                    Rectangle {
-                        implicitWidth: 8; implicitHeight: 8; radius: 4
-                        color: modelData.inbox ? theme.accent : modelData.color
+                    // A dot for a project, a dash for a section in it.
+                    Item {
+                        implicitWidth: 8; implicitHeight: 8
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 8
+                            height: modelData.kind === "section" ? 2 : 8
+                            radius: modelData.kind === "section" ? 1 : 4
+                            color: modelData.kind === "top" ? "transparent"
+                                 : modelData.inbox ? theme.accent : modelData.color
+                            border.width: modelData.kind === "top" ? 1 : 0
+                            border.color: theme.muted
+                        }
                     }
                     Label {
                         Layout.fillWidth: true
                         text: modelData.name
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
-                        color: theme.foreground
-                        font.pixelSize: 14
+                        color: modelData.kind === "section" ? theme.softForeground : theme.foreground
+                        font.pixelSize: modelData.kind === "section" ? 13 : 14
                     }
                     Label {
                         visible: here
@@ -118,7 +135,7 @@ Popup {
 
         Label {
             visible: picker.matches.length === 0
-            text: qsTr("No project matches.")
+            text: qsTr("Nothing matches.")
             color: theme.dimForeground
             font.pixelSize: 13
         }

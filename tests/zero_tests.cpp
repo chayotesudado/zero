@@ -386,7 +386,7 @@ private slots:
         QTRY_VERIFY(backend.loaded());
         backend.showView("inbox");
         QTRY_COMPARE(backend.tasks().size(), 1);
-        QCOMPARE(backend.destinations().first().toMap().value("id").toString(), QString("inbox1"));
+        QCOMPARE(backend.destinations().first().toMap().value("projectId").toString(), QString("inbox1"));
 
         server.requests.clear();
         backend.moveTask("a", "work");
@@ -653,6 +653,236 @@ private slots:
         Backend backend(credentials);
         QTRY_VERIFY(!backend.error().isEmpty());
         QVERIFY(backend.error().contains("token"));
+    }
+
+    void groupsTasksBySection() {
+        const QList<Section> sections = Tasks::parseSections({
+            QJsonObject{{"id", "later"}, {"name", "Later"}, {"project_id", "work"}, {"section_order", 2}},
+            QJsonObject{{"id", "gone"}, {"name", "Gone"}, {"project_id", "work"}, {"is_archived", true}},
+            QJsonObject{{"id", "now"}, {"name", "Now"}, {"project_id", "work"}, {"section_order", 1}},
+        });
+        QCOMPARE(sections.size(), 2);
+        QCOMPARE(sections.first().id, QString("now"));
+
+        QJsonObject inLater = task("a", "a"), inNow = task("b", "b"), inGone = task("c", "c"), sub = task("d", "d", QJsonValue(), 1, "b");
+        inLater.insert("section_id", "later");
+        inNow.insert("section_id", "now");
+        inGone.insert("section_id", "gone");
+        sub.insert("section_id", "now");
+        QHash<QString, int> depths;
+        QStringList ids;
+        for (const auto &t : Tasks::sortBySection(Tasks::parse({inLater, inNow, inGone, sub, task("e", "e")}), sections, &depths))
+            ids << t.id;
+        // Loose tasks (and one in an archived section) first, then by section.
+        QCOMPARE(ids, QStringList({"c", "e", "b", "d", "a"}));
+        QCOMPARE(depths.value("d"), 1);
+    }
+
+    void backendShowsAndEditsSections() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QJsonArray sections{
+            QJsonObject{{"id", "s1"}, {"name", "To do"}, {"project_id", "work"}, {"section_order", 1}},
+            QJsonObject{{"id", "s2"}, {"name", "Empty"}, {"project_id", "work"}, {"section_order", 2}},
+        };
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/sections" && request.method == "GET")
+                return {200, page(sections)};
+            if (request.path() == "/sections") {
+                const QJsonObject made{{"id", "s3"}, {"name", "New"}, {"project_id", "work"}, {"section_order", 3}};
+                sections << made;
+                return {200, QJsonDocument(made).toJson()};
+            }
+            if (request.target.contains("project_id=work")) {
+                QJsonObject a = task("a", "Loose"), b = task("b", "In to do");
+                a.insert("project_id", "work");
+                b.insert("project_id", "work");
+                b.insert("section_id", "s1");
+                return {200, page({a, b})};
+            }
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Milk")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {204, {}};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        backend.showView("project:work");
+        QTRY_VERIFY(backend.loaded());
+        auto keys = [&] {
+            QStringList list;
+            for (const auto &row : backend.rows())
+                list << row.toMap().value("key").toString();
+            return list;
+        };
+        // Empty sections show too, so they can be used and deleted.
+        QCOMPARE(keys(), QStringList({"task:a", "section:s1", "task:b", "section:s2"}));
+        QCOMPARE(backend.rows().at(1).toMap().value("count").toInt(), 1);
+
+        // The move picker offers each section under its project.
+        QStringList destinations;
+        for (const auto &entry : backend.destinations())
+            destinations << entry.toMap().value("key").toString();
+        QCOMPARE(destinations, QStringList({"project:inbox1", "project:work", "section:s1", "section:s2"}));
+
+        // A new task goes into the section it's added to.
+        server.requests.clear();
+        backend.add("Milk", "s2");
+        settle();
+        bool filed = false;
+        for (const auto &r : server.requests)
+            filed |= r.path() == "/tasks/new/move" && r.body.contains("\"section_id\":\"s2\"");
+        QVERIFY(filed);
+
+        // Moving between sections, and back out of one with undo.
+        server.requests.clear();
+        backend.moveTask("a", "work", "s1");
+        settle();
+        QVERIFY(server.requests.first().body.contains("\"section_id\":\"s1\""));
+        backend.undo();
+        settle();
+        bool backOut = false;
+        for (const auto &r : server.requests)
+            backOut |= r.path() == "/tasks/a/move" && r.body.contains("\"project_id\":\"work\"");
+        QVERIFY(backOut);
+
+        // A section is made in the project on screen.
+        QSignalSpy created(&backend, &Backend::sectionCreated);
+        backend.createSection("  New ");
+        QTRY_COMPARE(created.size(), 1);
+        bool sent = false;
+        for (const auto &r : server.requests)
+            sent |= r.method == "POST" && r.path() == "/sections" && r.body.contains("\"name\":\"New\"") &&
+                    r.body.contains("\"project_id\":\"work\"");
+        QVERIFY(sent);
+        QTRY_VERIFY(keys().contains("section:s3"));
+
+        // Deleting one takes its tasks, and steps about them, at once.
+        backend.complete("b");
+        QTRY_VERIFY(backend.canUndo());
+        backend.deleteSection("s1");
+        QVERIFY(!keys().contains("section:s1"));
+        QVERIFY(!keys().contains("task:b"));
+        bool onlyAddLeft = true;
+        // The add into s2 is still undoable; the completion of b isn't.
+        backend.undo();
+        settle();
+        for (const auto &r : server.requests)
+            onlyAddLeft &= r.path() != "/tasks/b/reopen";
+        QVERIFY(onlyAddLeft);
+        bool deleted = false;
+        for (const auto &r : server.requests)
+            deleted |= r.method == "DELETE" && r.path() == "/sections/s1";
+        QVERIFY(deleted);
+    }
+
+    void backendDeletesTasks() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.target.contains("project_id=inbox1"))
+                return {200, page({task("p", "Parent"), task("c", "Child", QJsonValue(), 1, "p"), task("o", "Other")})};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {204, {}};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        backend.showView("inbox");
+        QTRY_COMPARE(backend.tasks().size(), 3);
+        QCOMPARE(backend.subtaskCount("p"), 1);
+        backend.schedule("c", "tomorrow");
+        QTRY_VERIFY(backend.canUndo());
+
+        QSignalSpy deleted(&backend, &Backend::taskDeleted);
+        backend.deleteTask("p");
+        // The subtask goes with it, and so does undoing its date change.
+        QCOMPARE(backend.tasks().size(), 1);
+        QVERIFY(!backend.canUndo());
+        QTRY_COMPARE(deleted.size(), 1);
+        bool sent = false;
+        for (const auto &r : server.requests)
+            sent |= r.method == "DELETE" && r.path() == "/tasks/p";
+        QVERIFY(sent);
+    }
+
+    void backendNestsProjects() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QJsonArray list = projects;
+        list << QJsonObject{{"id", "home"}, {"name", "Home"}, {"child_order", 2}}
+             << QJsonObject{{"id", "sub"}, {"name", "Sub"}, {"parent_id", "work"}, {"child_order", 0}};
+        bool refuse = false;
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(list)};
+            if (request.path() == "/sync") {
+                const QJsonObject command = QJsonDocument::fromJson(request.body).object().value("commands").toArray().first().toObject();
+                const QString uuid = command.value("uuid").toString();
+                if (refuse)
+                    return {200, QJsonDocument(QJsonObject{{"sync_status", QJsonObject{{uuid, QJsonObject{
+                        {"error", "Too many levels"}, {"http_code", 400}}}}}}).toJson()};
+                return {200, QJsonDocument(QJsonObject{{"sync_status", QJsonObject{{uuid, "ok"}}}}).toJson()};
+            }
+            if (request.method == "GET")
+                return {200, page({})};
+            return {204, {}};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        auto syncs = [&] {
+            QList<QJsonObject> found;
+            for (const auto &r : server.requests)
+                if (r.path() == "/sync")
+                    found << QJsonDocument::fromJson(r.body).object().value("commands").toArray().first().toObject();
+            server.requests.clear();
+            return found;
+        };
+
+        // A project can't go under itself, its own sub-project, or the Inbox.
+        QStringList choices;
+        for (const auto &entry : backend.parentChoices("work"))
+            choices << entry.toMap().value("key").toString();
+        QCOMPARE(choices, QStringList({"top", "project:home"}));
+        backend.moveProject("work", "sub");
+        backend.moveProject("work", "inbox1");
+        QTest::qWait(100);
+        QVERIFY(syncs().isEmpty());
+
+        QSignalSpy moved(&backend, &Backend::projectMoved);
+        backend.moveProject("home", "work");
+        QTRY_COMPARE(moved.size(), 1);
+        settle();
+        QList<QJsonObject> sent = syncs();
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(sent.first().value("type").toString(), QString("project_move"));
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"id", "home"}, {"parent_id", "work"}}));
+
+        // Undo puts it back at the top level.
+        backend.undo();
+        settle();
+        sent = syncs();
+        QCOMPARE(sent.size(), 1);
+        QVERIFY(sent.first().value("args").toObject().value("parent_id").isNull());
+
+        // A command Todoist turns down is an error, not a success.
+        refuse = true;
+        backend.moveProject("home", "sub");
+        settle();
+        QVERIFY(backend.error().contains("Too many levels"));
+        QCOMPARE(moved.size(), 1);
     }
 
     void themeFallsBack() {

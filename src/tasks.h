@@ -24,12 +24,23 @@ struct Project {
     static Project fromJson(const QJsonObject &object);
 };
 
+// A heading inside a project, which Todoist calls a section.
+struct Section {
+    QString id;
+    QString name;
+    QString projectId;
+    int order = 0;
+
+    static Section fromJson(const QJsonObject &object);
+};
+
 struct Task {
     QString id;
     QString content;
     QString description;
     QString projectId;
     QString parentId;
+    QString sectionId;
     QStringList labels;
     // Todoist's API counts priority upside down: 4 is what users call p1.
     int priority = 1;
@@ -52,6 +63,8 @@ namespace Tasks {
 
 QList<Task> parse(const QJsonArray &array);
 QList<Project> parseProjects(const QJsonArray &array);
+// Live sections, each project's in Todoist's order.
+QList<Section> parseSections(const QJsonArray &array);
 
 // The order the Today and Upcoming views list tasks in: by when they're due,
 // timed tasks before untimed ones on the same day, then by priority.
@@ -60,6 +73,11 @@ void sortByDue(QList<Task> &tasks);
 // The order a project lists tasks in: Todoist's own order, with each subtask
 // under its parent. Fills depths with each task's nesting level.
 QList<Task> sortAsTree(const QList<Task> &tasks, QHash<QString, int> *depths);
+
+// A project's list: the tasks in no section first, then each section's in
+// the sections' order, each group as a tree. A task in a section that isn't
+// listed counts as in none.
+QList<Task> sortBySection(const QList<Task> &tasks, const QList<Section> &sections, QHash<QString, int> *depths);
 
 // The color Todoist names a project with, as hex.
 QString colorHex(const QString &name);

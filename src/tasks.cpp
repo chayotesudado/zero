@@ -16,6 +16,15 @@ Project Project::fromJson(const QJsonObject &object) {
     return project;
 }
 
+Section Section::fromJson(const QJsonObject &object) {
+    Section section;
+    section.id = object.value("id").toVariant().toString();
+    section.name = object.value("name").toString();
+    section.projectId = object.value("project_id").toVariant().toString();
+    section.order = object.value("section_order").toInt(object.value("order").toInt());
+    return section;
+}
+
 Task Task::fromJson(const QJsonObject &object) {
     Task task;
     task.id = object.value("id").toVariant().toString();
@@ -23,6 +32,7 @@ Task Task::fromJson(const QJsonObject &object) {
     task.description = object.value("description").toString();
     task.projectId = object.value("project_id").toVariant().toString();
     task.parentId = object.value("parent_id").toVariant().toString();
+    task.sectionId = object.value("section_id").toVariant().toString();
     task.priority = std::clamp(object.value("priority").toInt(1), 1, 4);
     task.childOrder = object.value("child_order").toInt(object.value("order").toInt());
     for (const auto &label : object.value("labels").toArray())
@@ -116,6 +126,22 @@ QList<Project> parseProjects(const QJsonArray &array) {
     return ordered;
 }
 
+QList<Section> parseSections(const QJsonArray &array) {
+    QList<Section> sections;
+    for (const auto &value : array) {
+        const QJsonObject object = value.toObject();
+        if (object.value("is_archived").toBool() || object.value("is_deleted").toBool())
+            continue;
+        sections << Section::fromJson(object);
+    }
+    std::stable_sort(sections.begin(), sections.end(), [](const Section &a, const Section &b) {
+        if (a.projectId != b.projectId)
+            return a.projectId < b.projectId;
+        return a.order < b.order;
+    });
+    return sections;
+}
+
 void sortByDue(QList<Task> &tasks) {
     std::stable_sort(tasks.begin(), tasks.end(), [](const Task &a, const Task &b) {
         if (a.hasDue() != b.hasDue())
@@ -158,6 +184,19 @@ QList<Task> sortAsTree(const QList<Task> &tasks, QHash<QString, int> *depths) {
     return ordered;
 }
 
+QList<Task> sortBySection(const QList<Task> &tasks, const QList<Section> &sections, QHash<QString, int> *depths) {
+    QSet<QString> known;
+    for (const auto &section : sections)
+        known.insert(section.id);
+    QHash<QString, QList<Task>> groups;
+    for (const auto &task : tasks)
+        groups[known.contains(task.sectionId) ? task.sectionId : QString()] << task;
+    QList<Task> ordered = sortAsTree(groups.value(QString()), depths);
+    for (const auto &section : sections)
+        ordered += sortAsTree(groups.value(section.id), depths);
+    return ordered;
+}
+
 QStringList colorNames() {
     return {"berry_red", "red",  "orange", "yellow",   "olive_green", "lime_green", "green",
             "mint_green", "teal", "sky_blue", "light_blue", "blue",      "grape",      "violet",
@@ -195,6 +234,7 @@ QVariantMap toVariant(const Task &task, const QDateTime &now, const QHash<QStrin
         {"group", overdue && task.dueDate < now.date() ? QStringLiteral("overdue")
                   : task.hasDue() ? task.dueDate.toString(Qt::ISODate) : QString()},
         {"projectId", task.projectId},
+        {"sectionId", task.sectionId},
         {"projectName", project.inbox ? QString() : project.name},
         {"projectColor", colorHex(project.color)},
         {"inbox", project.inbox},
