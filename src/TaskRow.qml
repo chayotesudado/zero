@@ -31,9 +31,9 @@ Item {
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         radius: Math.min(6, theme.radius)
-        color: row.selected ? theme.tint(0.07) : hover.hovered ? theme.tint(0.035) : "transparent"
-        border.width: row.selected ? 1 : 0
-        border.color: Qt.alpha(theme.accent, 0.55)
+        // As Omarchy's menus mark the selected row: a foreground tint and the
+        // title in the accent, with no outline.
+        color: row.selected ? theme.tint(0.08) : hover.hovered ? theme.tint(0.035) : "transparent"
     }
 
     HoverHandler { id: hover }
@@ -99,7 +99,7 @@ Item {
                 wrapMode: Text.Wrap
                 font.pixelSize: 13
                 font.strikeout: row.completing
-                color: theme.foreground
+                color: row.selected ? theme.accent : theme.foreground
             }
 
             Label {
