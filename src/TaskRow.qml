@@ -18,6 +18,7 @@ Item {
     signal scheduleRequested()
     signal moveRequested()
     signal deleteRequested()
+    signal openRequested()
 
     readonly property bool completing: tick.running || done
     property bool done: false
@@ -37,7 +38,10 @@ Item {
     }
 
     HoverHandler { id: hover }
-    TapHandler { onTapped: row.selectRequested() }
+    TapHandler {
+        onTapped: row.selectRequested()
+        onDoubleTapped: row.openRequested()
+    }
 
     Timer {
         id: tick
@@ -137,11 +141,12 @@ Item {
             }
         }
 
-        // Date, move, and delete, shown on hover and on the selected task.
+        // Open, date, move, and delete, shown on hover and on the selected task.
         RowLayout {
             Layout.alignment: Qt.AlignTop
             visible: hover.hovered || row.selected
             spacing: 2
+            RowAction { text: qsTr("Open"); onClicked: row.openRequested() }
             RowAction { text: qsTr("Date"); onClicked: row.scheduleRequested() }
             RowAction { text: qsTr("Move"); onClicked: row.moveRequested() }
             RowAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }

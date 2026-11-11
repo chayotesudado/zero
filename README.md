@@ -31,6 +31,12 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | --- | --- |
 | Space | Complete the selected task |
 | N | Add a task to the list on screen, into the selected section if there is one (Todoist quick add: dates, `#Project`, `@label`, `p1`) |
+| Shift+N | Add a subtask to the selected task |
+| Enter | Open the selected task to edit it, or rename the selected section |
+| Ctrl+1 … Ctrl+4 | Set the selected task's priority (p1–p4) |
+| Ctrl+] / Tab | Indent: make the task a subtask of the one above it |
+| Ctrl+[ / Shift+Tab | Outdent: move it out from under its parent |
+| Alt+J / Alt+K | Move the selected task (among its siblings) or section down / up |
 | M | Move the selected task to another project or section |
 | D | Change the selected task's due date (“fri 5pm”, “every monday”, “no date”) |
 | T | Make the selected task due today |
@@ -43,9 +49,11 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | P | New project |
 | C | Change the color of the project on screen |
 | Shift+M | Move the project on screen under another, or back to the top level |
+| Alt+Shift+J / Alt+Shift+K | Move the project on screen down / up in the sidebar |
+| F2 | Rename the project on screen |
 | Ctrl+Delete | Delete the project on screen (asks first) |
 | R | Refresh |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / redo a completion, add, move, date change, or project move |
+| Ctrl+Z / Ctrl+Shift+Z | Undo / redo a completion, add, move, date change, edit, rename, indent, reorder or drag, or project move |
 | Esc | Leave the add box |
 | ? | Show every shortcut |
 | Q | Quit |
@@ -53,19 +61,30 @@ Upgrading from Ticked, Zero's old name: the first run moves
 A new task lands in the list you're looking at: a project view files it
 in that project, and Today dates it today. A `#Project` or a date typed in
 the text wins. Upcoming and the bar widget add to the Inbox. Hovering a task
-(or selecting it) shows Date and Move buttons too.
+(or selecting it) shows Open, Date, and Move buttons too.
+
+Enter (or a double-click, or Open on hover) opens a task: its name and
+description to edit, its priority, date, and project, and its subtasks,
+which open the same way, with a box to add more. Changes are saved as you
+make them, and Esc closes it. Indenting, outdenting, and reordering work in
+a project or the Inbox, where Todoist keeps an order; Today and Upcoming are
+sorted by date. Tasks and section headings can also be dragged there: a
+task takes the level of the task it's dropped in front of (so dropping
+between subtasks makes it one), or the top of the section above. Projects
+drag among their siblings in the sidebar; Shift+M nests them.
 
 A project's sections show as headings in its list, empty ones included.
-Select a heading with J/K or a click: N then adds into that section, and
-Delete deletes it along with its tasks, as Todoist does. Deleting a task
+Select a heading with J/K or a click: N then adds into that section, Enter
+renames it, Alt+J/K moves it, and Delete deletes it along with its tasks,
+as Todoist does. Deleting a task
 asks first and can't be undone, since Todoist has no way to bring it back.
 
 Projects are created with the + beside "Projects" in the sidebar (or P),
 with one of Todoist's 20 project colors so it looks the same there, and
-recolored, moved under another project, or deleted from the ⋯ menu that
-appears on hover (or right-click). Deleting asks
-first and says how many tasks and sub-projects go with it, since Todoist
-deletes those too and it can't be undone.
+renamed, recolored, moved up, down, or under another project, or deleted
+from the ⋯ menu that appears on hover (or right-click). Deleting asks first
+and says how many tasks and sub-projects go with it, since Todoist deletes
+those too and it can't be undone.
 
 Everything is saved to Todoist as you go, so there's never unsaved work.
 
