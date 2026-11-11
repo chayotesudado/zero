@@ -1495,6 +1495,90 @@ private slots:
         QCOMPARE(reorder(), QJsonObject({{"projects", orders({{"home", 1}, {"work", 2}})}}));
     }
 
+    void backendReviewFixes() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/sync")
+                return syncOk(request);
+            if (request.path() == "/tasks/filter") {
+                QJsonObject p = task("p", "Plan trip", iso(0));
+                p.insert("description", "Notes from the web\n");
+                return {200, page({p})};
+            }
+            if (request.target.contains("parent_id=p"))
+                return {200, page({task("c", "Book flights", QJsonValue(), 1, "p", 1),
+                                   task("d", "Pack", QJsonValue(), 1, "p", 2)})};
+            if (request.target.contains("parent_id="))
+                return {200, page({})};
+            if (request.target.contains("project_id=inbox1"))
+                return {200, page({task("a", "A", QJsonValue(), 1, {}, 1), task("b", "B", QJsonValue(), 1, {}, 2),
+                                   task("x", "X", QJsonValue(), 1, {}, 3)})};
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Buy screws")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        settle();
+
+        // Opening and closing a task whose description ends in a newline,
+        // as Todoist's other apps leave them, changes nothing.
+        server.requests.clear();
+        backend.editTask("p", {{"content", "Plan trip"}, {"description", "Notes from the web"}});
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+        QVERIFY(!backend.canUndo());
+
+        // Subtasks the details loaded count when deleting from a dated list.
+        QCOMPARE(backend.subtaskCount("p"), 0);
+        backend.loadSubtasks("p");
+        QTRY_COMPARE(backend.subtasksOf("p").size(), 2);
+        QCOMPARE(backend.subtaskCount("p"), 2);
+
+        // A subtask added while Today is on screen isn't dated today.
+        server.requests.clear();
+        backend.add("Buy screws", {}, "p");
+        settle();
+        for (const auto &r : server.requests)
+            QVERIFY(!r.body.contains("due_string"));
+
+        // A subtask opened from the details (whose copy is its parent's)
+        // reloads with its parent's subtasks after a change.
+        backend.loadSubtasks("c");
+        settle();
+        server.requests.clear();
+        backend.schedule("c", "tomorrow");
+        settle();
+        bool parentReloaded = false;
+        for (const auto &r : server.requests)
+            parentReloaded |= r.target.contains("parent_id=p");
+        QVERIFY(parentReloaded);
+        backend.forgetSubtasks();
+
+        // Deleting a task drops the reorders that put it in order, which
+        // would fail once it's gone; others stay.
+        backend.showView("inbox");
+        QTRY_COMPARE(backend.tasks().size(), 3);
+        settle();
+        while (backend.canUndo()) {
+            backend.undo();
+            settle();
+        }
+        backend.moveTaskBy("a", 1);
+        settle();
+        QVERIFY(backend.canUndo());
+        backend.deleteTask("b");
+        QVERIFY(!backend.canUndo());
+    }
+
     void themeFallsBack() {
         QTemporaryDir dir;
         Theme theme(dir.path());

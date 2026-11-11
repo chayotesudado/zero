@@ -90,13 +90,6 @@ Popup {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-        // Ctrl+Enter saves and closes from anywhere in it.
-        Keys.onPressed: function(event) {
-            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ControlModifier)) {
-                detail.close()
-                event.accepted = true
-            }
-        }
 
         ColumnLayout {
             id: column
@@ -292,7 +285,14 @@ Popup {
                             color: subHover.hovered ? theme.tint(0.04) : "transparent"
                         }
                         HoverHandler { id: subHover; cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: detail.openFor(sub.modelData.id) }
+                        // Opens the subtask, unless the tap was on its circle,
+                        // which completes it: this row hears that tap too.
+                        TapHandler {
+                            onTapped: function(point) {
+                                var p = subDone.mapFromItem(sub, point.position.x, point.position.y)
+                                if (!subDone.contains(p)) detail.openFor(sub.modelData.id)
+                            }
+                        }
 
                         RowLayout {
                             anchors.fill: parent
@@ -300,6 +300,7 @@ Popup {
                             anchors.rightMargin: 6
                             spacing: 10
                             Rectangle {
+                                id: subDone
                                 implicitWidth: 15
                                 implicitHeight: 15
                                 radius: 7.5

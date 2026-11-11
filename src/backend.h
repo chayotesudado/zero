@@ -226,7 +226,17 @@ private:
     // Any step but a completion or an add, which undo and redo handle themselves.
     void applyStep(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     // Patches every copy of a task (the list's, a loaded subtask's).
-    void patchTask(const QString &taskId, const std::function<void(Task &)> &patch);
+    // announce false leaves telling QML to the caller, which changes more.
+    void patchTask(const QString &taskId, const std::function<void(Task &)> &patch, bool announce = true);
+    // Sets the child orders an item_reorder's args name, without re-sorting;
+    // false when they name none.
+    bool setChildOrders(const QJsonObject &args);
+    // Fetches a task's subtasks into m_subtasks, as loadSubtasks does,
+    // without watching it.
+    void fetchSubtasks(const QString &taskId);
+    // Whether a step names any of ids: its task, its parents, or anything its
+    // reorder args put in order.
+    static bool mentions(const Step &step, const QSet<QString> &ids);
     // Puts the child orders in a reorder command's args into the tasks,
     // sections, or projects they name, and re-sorts what's shown.
     void applyOrders(const QString &command, const QJsonObject &args);
