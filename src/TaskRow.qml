@@ -13,6 +13,8 @@ Item {
     property var task: ({})
     property bool selected: false
     property bool showProject: true
+    // Shows the grip on hover: the list lets this row be dragged.
+    property bool draggable: false
     signal completeRequested()
     signal selectRequested()
     signal scheduleRequested()
@@ -38,6 +40,12 @@ Item {
     }
 
     HoverHandler { id: hover }
+
+    Grip {
+        visible: row.draggable && hover.hovered && !row.completing
+        x: content.anchors.leftMargin - 11
+        y: 15
+    }
     TapHandler {
         onTapped: row.selectRequested()
         onDoubleTapped: row.openRequested()
@@ -152,9 +160,11 @@ Item {
             RowAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
         }
 
-        // The project, on the right, when the list mixes projects.
+        // The project, on the right, when the list mixes projects; its text
+        // sits on the same line as the buttons' padded text beside it.
         RowLayout {
             Layout.alignment: Qt.AlignTop
+            Layout.topMargin: 4
             visible: row.showProject && !!row.task.projectName
             spacing: 6
             Label {
@@ -184,5 +194,16 @@ Item {
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }
+    }
+
+    // Six dots on hover, left of the row, saying it can be dragged.
+    component Grip: Grid {
+        columns: 2
+        spacing: 2
+        opacity: 0.7
+        Repeater {
+            model: 6
+            Rectangle { width: 2; height: 2; radius: 1; color: theme.dimForeground }
+        }
     }
 }

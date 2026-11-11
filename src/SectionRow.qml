@@ -10,6 +10,7 @@ Item {
 
     property var section: ({})
     property bool selected: false
+    property bool draggable: false
     signal selectRequested()
     signal addRequested()
     signal deleteRequested()
@@ -29,6 +30,13 @@ Item {
     }
 
     HoverHandler { id: hover }
+
+    Grip {
+        visible: row.draggable && hover.hovered
+        x: 5
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 15
+    }
     TapHandler {
         onTapped: row.selectRequested()
         onDoubleTapped: row.renameRequested()
@@ -93,5 +101,16 @@ Item {
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }
+    }
+
+    // Six dots on hover, left of the row, saying it can be dragged.
+    component Grip: Grid {
+        columns: 2
+        spacing: 2
+        opacity: 0.7
+        Repeater {
+            model: 6
+            Rectangle { width: 2; height: 2; radius: 1; color: theme.dimForeground }
+        }
     }
 }
