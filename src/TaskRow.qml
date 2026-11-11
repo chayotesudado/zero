@@ -25,7 +25,12 @@ Item {
     readonly property bool completing: tick.running || done
     property bool done: false
     readonly property color priorityColor: Dates.priorityColor(task.priority, theme)
-    readonly property string due: (translator.language, Dates.dueLabel(task, Qt.locale()))
+    // In a list grouped by day (Today, Upcoming), the heading says the day,
+    // so a task there shows only its time; an overdue one keeps its date.
+    property bool groupedByDay: false
+    readonly property string due: (translator.language,
+        groupedByDay && task.group !== "overdue" ? Dates.timeLabel(task, Qt.locale()) : Dates.dueLabel(task, Qt.locale()))
+    readonly property string dueText: task.recurring ? (due !== "" ? "↻ " + due : "↻") : due
 
     implicitHeight: Math.max(40, content.implicitHeight + 16)
 
@@ -41,10 +46,12 @@ Item {
 
     HoverHandler { id: hover }
 
+    // The circle, the grip, the buttons, and the project are centered on
+    // the row, however many lines its text takes.
     Grip {
         visible: row.draggable && hover.hovered && !row.completing
         x: content.anchors.leftMargin - 11
-        y: 15
+        anchors.verticalCenter: parent.verticalCenter
     }
     TapHandler {
         onTapped: row.selectRequested()
@@ -75,8 +82,7 @@ Item {
         // corner radius.
         Rectangle {
             id: circle
-            Layout.alignment: Qt.AlignTop
-            Layout.topMargin: 1
+            Layout.alignment: Qt.AlignVCenter
             implicitWidth: 17
             implicitHeight: 17
             radius: 8.5
@@ -125,12 +131,12 @@ Item {
             }
 
             RowLayout {
-                visible: row.due !== "" || (row.showProject && !!row.task.projectName) || (row.task.labels || []).length > 0
+                visible: row.dueText !== "" || (row.task.labels || []).length > 0
                 spacing: 12
 
                 Label {
-                    visible: row.due !== ""
-                    text: (row.task.recurring ? "↻ " : "") + row.due
+                    visible: row.dueText !== ""
+                    text: row.dueText
                     textFormat: Text.PlainText
                     font.pixelSize: 11
                     color: row.task.overdue ? theme.red : row.task.dayOffset === 0 ? theme.accent : theme.dimForeground
@@ -151,7 +157,7 @@ Item {
 
         // Open, date, move, and delete, shown on hover and on the selected task.
         RowLayout {
-            Layout.alignment: Qt.AlignTop
+            Layout.alignment: Qt.AlignVCenter
             visible: hover.hovered || row.selected
             spacing: 2
             RowAction { text: qsTr("Open"); onClicked: row.openRequested() }
@@ -160,11 +166,9 @@ Item {
             RowAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
         }
 
-        // The project, on the right, when the list mixes projects; its text
-        // sits on the same line as the buttons' padded text beside it.
+        // The project, on the right, when the list mixes projects.
         RowLayout {
-            Layout.alignment: Qt.AlignTop
-            Layout.topMargin: 4
+            Layout.alignment: Qt.AlignVCenter
             visible: row.showProject && !!row.task.projectName
             spacing: 6
             Label {
@@ -194,16 +198,5 @@ Item {
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }
-    }
-
-    // Six dots on hover, left of the row, saying it can be dragged.
-    component Grip: Grid {
-        columns: 2
-        spacing: 2
-        opacity: 0.7
-        Repeater {
-            model: 6
-            Rectangle { width: 2; height: 2; radius: 1; color: theme.dimForeground }
-        }
     }
 }

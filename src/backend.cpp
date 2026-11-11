@@ -285,8 +285,13 @@ void Backend::loadView() {
             tasks = Tasks::sortBySection(tasks, sectionsOf(viewProjectId()), &m_depths);
         applyTasks(tasks);
     };
-    if (!m_watching.isEmpty())
-        loadSubtasks(m_watching);
+    // Every task whose subtasks are loaded, so a subtask opened from the
+    // details (whose copy is its parent's) shows a new date or place too.
+    QStringList parents = m_subtasks.keys();
+    if (!m_watching.isEmpty() && !parents.contains(m_watching))
+        parents << m_watching;
+    for (const auto &parent : parents)
+        fetchSubtasks(parent);
     begin();
     if (view == "today")
         m_client.tasksMatching(todayQuery(), done);
@@ -420,6 +425,19 @@ QSet<QString> Backend::removeLocally(const QString &taskId) {
     return gone;
 }
 
+bool Backend::mentions(const Step &step, const QSet<QString> &ids) {
+    if (ids.contains(step.taskId) || ids.contains(step.toParent) || ids.contains(step.fromParent))
+        return true;
+    // The tasks, sections, or projects a reorder (or an indent's reorder)
+    // puts in order, which can't be ordered once one is gone.
+    for (const QJsonObject &args : {step.before, step.after})
+        for (const char *list : {"items", "sections", "projects"})
+            for (const auto &value : args.value(list).toArray())
+                if (ids.contains(value.toObject().value("id").toString()))
+                    return true;
+    return false;
+}
+
 void Backend::dropSteps(const std::function<bool(const Step &)> &gone) {
     auto drop = [&gone](QList<Step> &steps) {
         steps.erase(std::remove_if(steps.begin(), steps.end(), gone), steps.end());
@@ -436,10 +454,7 @@ void Backend::deleteTask(const QString &taskId) {
     const Task task = *found;
     const QSet<QString> gone = removeLocally(taskId);
     // Nothing done to these can be undone or redone any more.
-    dropSteps([gone](const Step &step) {
-        return (aboutTask(step) && gone.contains(step.taskId)) || gone.contains(step.toParent) ||
-               gone.contains(step.fromParent);
-    });
+    dropSteps([gone](const Step &step) { return step.kind != Step::ProjectMoved && mentions(step, gone); });
     begin();
     m_client.remove(taskId, [this, task](const QJsonObject &, const ApiError &error) {
         end();
@@ -521,6 +536,8 @@ void Backend::add(const QString &text, const QString &sectionId, const QString &
             step.to.clear();
             step.toSection.clear();
             step.toParent = parent;
+            // Nor dated today for being added while Today is on screen.
+            step.datedToday = false;
         }
         m_redo.clear();
         // Kept with the project and section it's filed into, so deleting
@@ -663,9 +680,10 @@ void Backend::deleteProject(const QString &projectId) {
     if (m_view.startsWith("project:") && gone.contains(m_view.mid(8)))
         showView("inbox");
     // Steps that touch the deleted projects can't be undone or redone.
-    dropSteps([gone](const Step &step) {
+    const QSet<QString> goneSet(gone.begin(), gone.end());
+    dropSteps([gone, goneSet](const Step &step) {
         return gone.contains(step.task.projectId) || gone.contains(step.from) || gone.contains(step.to) ||
-               (!aboutTask(step) && gone.contains(step.taskId));
+               (!aboutTask(step) && mentions(step, goneSet));
     });
 
     begin();
@@ -757,8 +775,8 @@ void Backend::deleteSection(const QString &sectionId) {
         tasks.unite(removeLocally(id));
     m_sections.removeIf([&](const Section &candidate) { return candidate.id == sectionId; });
     dropSteps([tasks, sectionId](const Step &step) {
-        return (aboutTask(step) && tasks.contains(step.taskId)) || step.fromSection == sectionId ||
-               step.toSection == sectionId || (!aboutTask(step) && step.taskId == sectionId);
+        return (aboutTask(step) && mentions(step, tasks)) || step.fromSection == sectionId ||
+               step.toSection == sectionId || (!aboutTask(step) && mentions(step, {sectionId}));
     });
     emit tasksChanged();
     emit projectsChanged();
@@ -789,7 +807,24 @@ QSet<QString> Backend::subtreeOf(const QString &taskId) const {
     return found;
 }
 
-int Backend::subtaskCount(const QString &taskId) const { return int(subtreeOf(taskId).size()) - 1; }
+int Backend::subtaskCount(const QString &taskId) const {
+    // The list's, and the ones loaded for the details, which a dated list
+    // doesn't show.
+    QList<Task> known = m_tasks;
+    for (const auto &list : m_subtasks)
+        known += list;
+    QSet<QString> found{taskId};
+    bool grew = true;
+    while (grew) {
+        grew = false;
+        for (const auto &task : known)
+            if (!found.contains(task.id) && found.contains(task.parentId)) {
+                found.insert(task.id);
+                grew = true;
+            }
+    }
+    return int(found.size()) - 1;
+}
 
 const Task *Backend::findTask(const QString &taskId) const {
     for (const auto &task : m_tasks)
@@ -834,17 +869,19 @@ void Backend::applyMove(const Step &step, bool forward, std::function<void(const
     } else if (!shown.isEmpty() && (step.fromParent != step.toParent || !orders.isEmpty())) {
         const Task *under = findTask(parent);
         const QString inSection = under ? under->sectionId : section;
+        // All in place first, then the list is rebuilt once.
         patchTask(step.taskId, [parent, inSection](Task &task) {
             task.parentId = parent;
             task.sectionId = inSection;
-        });
+        }, false);
         // Its subtasks go with it into the section.
         const QSet<QString> subtree = subtreeOf(step.taskId);
         for (auto &task : m_tasks)
             if (subtree.contains(task.id))
                 task.sectionId = inSection;
-        applyOrders("item_reorder", orders);
+        setChildOrders(orders);
         resort();
+        emit subtasksChanged();
     }
     auto finish = [this, done](const ApiError &error) {
         end();
@@ -1054,7 +1091,7 @@ void Backend::applyStep(const Step &step, bool forward, std::function<void(const
     }
 }
 
-void Backend::patchTask(const QString &taskId, const std::function<void(Task &)> &patch) {
+void Backend::patchTask(const QString &taskId, const std::function<void(Task &)> &patch, bool announce) {
     for (auto &task : m_tasks)
         if (task.id == taskId)
             patch(task);
@@ -1065,6 +1102,8 @@ void Backend::patchTask(const QString &taskId, const std::function<void(Task &)>
                 patch(task);
                 inSubtasks = true;
             }
+    if (!announce)
+        return;
     emit tasksChanged();
     if (inSubtasks)
         emit subtasksChanged();
@@ -1079,17 +1118,21 @@ void Backend::editTask(const QString &taskId, const QVariantMap &changes) {
     QJsonObject before, after;
     if (changes.contains("content")) {
         const QString content = changes.value("content").toString().trimmed();
-        if (!content.isEmpty() && content != task->content) {
+        if (!content.isEmpty() && content != task->content.trimmed()) {
             before.insert("content", task->content);
             after.insert("content", content);
         }
     }
     if (changes.contains("description")) {
-        // Trailing blank lines left by typing don't count as a change.
-        QString description = changes.value("description").toString();
-        while (description.endsWith('\n') || description.endsWith(' '))
-            description.chop(1);
-        if (description != task->description) {
+        // Trailing blank lines don't count as a change, the ones a task came
+        // with from Todoist included: opening and closing it sends nothing.
+        auto trimEnd = [](QString text) {
+            while (text.endsWith('\n') || text.endsWith(' '))
+                text.chop(1);
+            return text;
+        };
+        const QString description = trimEnd(changes.value("description").toString());
+        if (description != trimEnd(task->description)) {
             before.insert("description", task->description);
             after.insert("description", description);
         }
@@ -1228,11 +1271,18 @@ QList<Task> Backend::siblingsOf(const Task &task) const {
     return list;
 }
 
-QJsonObject Backend::itemOrders(const QList<Task> &tasks, bool renumber) {
+// A reorder command's args: {list: [{id, field: order}]}, with each one's
+// own order, or renumbered 1, 2, 3 in the order given.
+template <typename T>
+static QJsonObject orderArgs(const QList<T> &things, int T::*order, const char *list, const char *field, bool renumber) {
     QJsonArray items;
-    for (int i = 0; i < tasks.size(); ++i)
-        items << QJsonObject{{"id", tasks[i].id}, {"child_order", renumber ? i + 1 : tasks[i].childOrder}};
-    return {{"items", items}};
+    for (int i = 0; i < things.size(); ++i)
+        items << QJsonObject{{"id", things[i].id}, {field, renumber ? i + 1 : things[i].*order}};
+    return {{list, items}};
+}
+
+QJsonObject Backend::itemOrders(const QList<Task> &tasks, bool renumber) {
+    return orderArgs(tasks, &Task::childOrder, "items", "child_order", renumber);
 }
 
 void Backend::resort() {
@@ -1244,19 +1294,24 @@ void Backend::resort() {
     emit tasksChanged();
 }
 
+bool Backend::setChildOrders(const QJsonObject &args) {
+    QHash<QString, int> orders;
+    for (const auto &value : args.value("items").toArray())
+        orders.insert(value.toObject().value("id").toString(), value.toObject().value("child_order").toInt());
+    if (orders.isEmpty())
+        return false;
+    for (auto &task : m_tasks)
+        task.childOrder = orders.value(task.id, task.childOrder);
+    for (auto &list : m_subtasks)
+        for (auto &task : list)
+            task.childOrder = orders.value(task.id, task.childOrder);
+    return true;
+}
+
 void Backend::applyOrders(const QString &command, const QJsonObject &args) {
     if (command == "item_reorder") {
-        // All at once, so the list is rebuilt once, by resort.
-        QHash<QString, int> orders;
-        for (const auto &value : args.value("items").toArray())
-            orders.insert(value.toObject().value("id").toString(), value.toObject().value("child_order").toInt());
-        if (orders.isEmpty())
+        if (!setChildOrders(args))
             return;
-        for (auto &task : m_tasks)
-            task.childOrder = orders.value(task.id, task.childOrder);
-        for (auto &list : m_subtasks)
-            for (auto &task : list)
-                task.childOrder = orders.value(task.id, task.childOrder);
         resort();
         emit subtasksChanged();
     } else if (command == "section_reorder") {
@@ -1410,10 +1465,7 @@ void Backend::moveSectionBy(const QString &sectionId, int delta) {
 
 void Backend::reorderSections(const Section &section, const QList<Section> &old, const QList<Section> &now) {
     auto orders = [](const QList<Section> &list, bool renumber) {
-        QJsonArray items;
-        for (int i = 0; i < list.size(); ++i)
-            items << QJsonObject{{"id", list[i].id}, {"section_order", renumber ? i + 1 : list[i].order}};
-        return QJsonObject{{"sections", items}};
+        return orderArgs(list, &Section::order, "sections", "section_order", renumber);
     };
     Step step{Step::Reordered, section.id, section.name, {}, section.projectId};
     step.command = "section_reorder";
@@ -1458,10 +1510,7 @@ void Backend::moveProjectBy(const QString &projectId, int delta) {
 
 void Backend::reorderProjects(const Project &project, const QList<Project> &old, const QList<Project> &now) {
     auto orders = [](const QList<Project> &list, bool renumber) {
-        QJsonArray items;
-        for (int i = 0; i < list.size(); ++i)
-            items << QJsonObject{{"id", list[i].id}, {"child_order", renumber ? i + 1 : list[i].order}};
-        return QJsonObject{{"projects", items}};
+        return orderArgs(list, &Project::order, "projects", "child_order", renumber);
     };
     Step step{Step::Reordered, project.id, project.name};
     step.command = "project_reorder";
@@ -1673,6 +1722,10 @@ void Backend::loadSubtasks(const QString &taskId) {
     if (taskId.isEmpty() || !signedIn())
         return;
     m_watching = taskId;
+    fetchSubtasks(taskId);
+}
+
+void Backend::fetchSubtasks(const QString &taskId) {
     const int generation = m_subtaskGeneration;
     begin();
     m_client.subtasks(taskId, [this, taskId, generation](const QJsonArray &results, const ApiError &error) {

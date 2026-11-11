@@ -102,15 +102,4 @@ Item {
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }
     }
-
-    // Six dots on hover, left of the row, saying it can be dragged.
-    component Grip: Grid {
-        columns: 2
-        spacing: 2
-        opacity: 0.7
-        Repeater {
-            model: 6
-            Rectangle { width: 2; height: 2; radius: 1; color: theme.dimForeground }
-        }
-    }
 }

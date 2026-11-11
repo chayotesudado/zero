@@ -32,10 +32,12 @@ ApplicationWindow {
                                        || projectColorDialog.visible || sectionDialog.visible || confirmDialog.visible
                                        || taskDetail.visible || projectMenu.visible
     readonly property bool keysLive: backend.signedIn && !typing && !helpVisible && !pickerOpen
-    // The task details take a few of the list's keys (D, M, Ctrl+1–4) for
-    // the task they show, when nothing is open over them.
-    readonly property bool detailKeys: taskDetail.visible && !typing && !movePicker.visible && !schedulePicker.visible
-                                       && !confirmDialog.visible
+    // The task details are open with nothing over them. Then they take a
+    // few of the list's keys for the task they show: Ctrl+1–4 and
+    // Ctrl+Enter even while typing in them, D and M (detailKeys) when not.
+    readonly property bool detailOnTop: taskDetail.visible && !movePicker.visible && !schedulePicker.visible
+                                        && !confirmDialog.visible
+    readonly property bool detailKeys: detailOnTop && !typing
     readonly property bool inProject: backend.view.indexOf("project:") === 0
     readonly property string today: Dates.isoToday()
     // Projects and the Inbox have sections; the dated lists don't.
@@ -134,8 +136,9 @@ ApplicationWindow {
     // A dragged task over the sidebar lands in the list under the pointer:
     // the Inbox or a project moves it there, Today makes it due today.
     // Returns {view, projectId, name}, or null off the sidebar.
-    function sidebarTargetAt(scenePoint) {
-        var fixed = [[inboxItem, win.inboxId()], [todayItem, ""]]
+    // inbox is the Inbox's id, looked up once when the drag starts.
+    function sidebarTargetAt(scenePoint, inbox) {
+        var fixed = [[inboxItem, inbox], [todayItem, ""]]
         for (var i = 0; i < fixed.length; i++) {
             var item = fixed[i][0]
             var p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
@@ -145,9 +148,9 @@ ApplicationWindow {
         var q = projectList.mapFromItem(null, scenePoint.x, scenePoint.y)
         if (q.x < 0 || q.y < 0 || q.x >= projectList.width || q.y >= projectList.height) return null
         var index = projectList.indexAt(q.x, q.y + projectList.contentY)
-        if (index < 0) return null
-        var project = backend.projects[index]
-        return { view: "project:" + project.id, projectId: project.id, name: project.name }
+        var item = index < 0 ? null : projectList.itemAtIndex(index)
+        if (!item || !item.project) return null
+        return { view: "project:" + item.project.id, projectId: item.project.id, name: item.project.name }
     }
 
     function inboxId() {
@@ -221,9 +224,15 @@ ApplicationWindow {
                               row.count > 0 ? qsTr("%n tasks in it will be deleted with it.", "", row.count)
                                             : qsTr("It has no tasks."), false)
         } else {
+            // A project's list has all its tasks, so the count is exact. A
+            // dated list (and the details opened from one) may not show
+            // them all, so Cancel takes Enter there.
             var subtasks = backend.subtaskCount(row.id)
+            var exact = win.sectionsHere
             confirmDialog.ask(qsTr("Delete “%1”?").arg(row.content),
-                              subtasks > 0 ? qsTr("%n subtasks will be deleted with it.", "", subtasks) : "", subtasks === 0)
+                              subtasks > 0 ? qsTr("%n subtasks will be deleted with it.", "", subtasks)
+                                           : exact ? "" : qsTr("Any subtasks it has will be deleted with it."),
+                              subtasks === 0 && exact)
         }
     }
 
@@ -253,7 +262,7 @@ ApplicationWindow {
         onActivated: deleteProjectDialog.openFor(win.currentProject()) }
     Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.refresh() }
     Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.openSelected() }
-    Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; context: Qt.ApplicationShortcut; enabled: taskDetail.visible
+    Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; context: Qt.ApplicationShortcut; enabled: win.detailOnTop
         onActivated: taskDetail.close() }
     Shortcut { sequence: "Shift+N"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.addSubtask() }
     Shortcut { sequences: ["Ctrl+]", "Tab"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
@@ -278,7 +287,7 @@ ApplicationWindow {
             Shortcut {
                 sequence: "Ctrl+" + (index + 1)
                 context: Qt.ApplicationShortcut
-                enabled: win.keysLive || (taskDetail.visible && !movePicker.visible && !schedulePicker.visible && !confirmDialog.visible)
+                enabled: win.keysLive || win.detailOnTop
                 onActivated: { var t = win.targetTask(); if (t) backend.setPriority(t.id, index + 1) }
             }
         }
@@ -402,7 +411,7 @@ ApplicationWindow {
                         property int dropAt: -1
                         function dragMoved(scenePoint) {
                             var p = mapFromItem(null, scenePoint.x, scenePoint.y)
-                            dropAt = win.dropIndexIn(projectList, backend.projects.length, p.y)
+                            dropAt = win.dropIndexIn(projectList, projectList.count, p.y)
                         }
                         function dropDragged() {
                             if (dragProject && dropAt >= 0) backend.dropProject(dragProject.id, dropAt)
@@ -413,7 +422,7 @@ ApplicationWindow {
                         DropLine {
                             visible: projectList.dragProject !== null && projectList.dropAt >= 0
                             y: Math.max(0, (projectList.dropAt, projectList.contentHeight,
-                                win.dropLineY(projectList, backend.projects.length, projectList.dropAt)) - 1)
+                                win.dropLineY(projectList, projectList.count, projectList.dropAt)) - 1)
                             x: 20 + (projectList.dragProject ? projectList.dragProject.depth : 0) * 14
                             width: projectList.width - x - 12
                         }
@@ -615,6 +624,10 @@ ApplicationWindow {
                     // A task can also be dropped on the sidebar (dropTarget),
                     // from any list, the dated ones included.
                     property var dragRow: null
+                    // The rows and the Inbox's id as the drag began, so
+                    // moving the pointer doesn't rebuild them from C++.
+                    property var dragRows: []
+                    property string dragInbox: ""
                     property int dropAt: -1
                     property var dropTarget: null
                     property point dragPoint: Qt.point(0, 0)
@@ -622,16 +635,17 @@ ApplicationWindow {
                     function dragMoved(scenePoint) {
                         dragScene = scenePoint
                         dragPoint = mapFromItem(null, scenePoint.x, scenePoint.y)
-                        var target = dragRow && dragRow.kind === "task" ? win.sidebarTargetAt(scenePoint) : null
+                        var target = dragRow && dragRow.kind === "task" ? win.sidebarTargetAt(scenePoint, dragInbox) : null
                         // Its own project isn't somewhere else to go.
                         dropTarget = target && target.view !== "today" && target.projectId === dragRow.projectId ? null : target
                         var inList = dragPoint.x >= 0 && dragPoint.x < width
                         dropAt = !dropTarget && inList && win.sectionsHere
-                                 ? win.dropIndexIn(taskList, backend.rows.length, dragPoint.y) : -1
+                                 ? win.dropIndexIn(taskList, count, dragPoint.y) : -1
                     }
                     function dropDragged() {
                         var row = dragRow, at = dropAt, target = dropTarget
                         dragRow = null
+                        dragRows = []
                         dropAt = -1
                         dropTarget = null
                         if (!row) return
@@ -655,7 +669,7 @@ ApplicationWindow {
                     // task it lands in front of, past itself and its subtasks,
                     // as the backend reads a drop.
                     readonly property int dropDepth: {
-                        var rows = backend.rows
+                        var rows = dragRows
                         if (!dragRow || dragRow.kind === "section" || dropAt < 0) return 0
                         var from = -1, to = -1
                         for (var k = 0; k < rows.length; k++)
@@ -679,7 +693,7 @@ ApplicationWindow {
                             var bottom = taskList.originY + Math.max(0, taskList.contentHeight - taskList.height)
                             var step = taskList.dragPoint.y < 36 ? -8 : 8
                             taskList.contentY = Math.max(top, Math.min(bottom, taskList.contentY + step))
-                            taskList.dropAt = win.dropIndexIn(taskList, backend.rows.length, taskList.dragPoint.y)
+                            taskList.dropAt = win.dropIndexIn(taskList, taskList.count, taskList.dragPoint.y)
                         }
                     }
 
@@ -705,7 +719,7 @@ ApplicationWindow {
                     DropLine {
                         visible: taskList.dragRow !== null && taskList.dropAt >= 0
                         y: Math.max(0, (taskList.dropAt, taskList.contentHeight,
-                            win.dropLineY(taskList, backend.rows.length, taskList.dropAt)) - 1)
+                            win.dropLineY(taskList, taskList.count, taskList.dropAt)) - 1)
                         x: 16 + taskList.dropDepth * 26
                         width: taskList.width - x - 16
                         z: 5
@@ -760,6 +774,8 @@ ApplicationWindow {
                                 if (active) {
                                     taskList.select(entry.index)
                                     taskList.forceActiveFocus()
+                                    taskList.dragRows = backend.rows
+                                    taskList.dragInbox = win.inboxId()
                                     taskList.dragRow = entry.modelData
                                 } else {
                                     taskList.dropDragged()
@@ -782,6 +798,7 @@ ApplicationWindow {
                                 selected: entry.current
                                 draggable: true
                                 showProject: taskList.grouped
+                                groupedByDay: taskList.grouped
                                 onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onCompleteRequested: backend.complete(entry.modelData.id)
                                 onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }

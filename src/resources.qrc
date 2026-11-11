@@ -3,6 +3,7 @@
         <file alias="Main.qml">Main.qml</file>
         <file alias="TaskRow.qml">TaskRow.qml</file>
         <file alias="TaskDetail.qml">TaskDetail.qml</file>
+        <file alias="Grip.qml">Grip.qml</file>
         <file alias="ZeroMark.qml">ZeroMark.qml</file>
         <file alias="ListIcon.qml">ListIcon.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>
