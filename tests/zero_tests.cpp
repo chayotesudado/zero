@@ -36,6 +36,34 @@ const QJsonArray projects{
 
 QString iso(int days) { return QDate::currentDate().addDays(days).toString(Qt::ISODate); }
 
+// Todoist's answer to a Sync API request: every command went through.
+FakeServer::Response syncOk(const FakeServer::Request &request) {
+    QJsonObject status;
+    for (const auto &command : QJsonDocument::fromJson(request.body).object().value("commands").toArray())
+        status.insert(command.toObject().value("uuid").toString(), "ok");
+    return {200, QJsonDocument(QJsonObject{{"sync_status", status}}).toJson()};
+}
+
+// The Sync commands sent since the last call, as {type, args}, clearing the log.
+QList<QJsonObject> takeCommands(FakeServer &server) {
+    QList<QJsonObject> found;
+    for (const auto &r : server.requests)
+        if (r.path() == "/sync")
+            for (const auto &command : QJsonDocument::fromJson(r.body).object().value("commands").toArray())
+                found << command.toObject();
+    server.requests.clear();
+    return found;
+}
+
+QJsonObject body(const FakeServer::Request &request) { return QJsonDocument::fromJson(request.body).object(); }
+
+QJsonArray orders(std::initializer_list<std::pair<const char *, int>> items, const char *field = "child_order") {
+    QJsonArray list;
+    for (const auto &[id, order] : items)
+        list << QJsonObject{{"id", id}, {field, order}};
+    return list;
+}
+
 } // namespace
 
 class ZeroTests : public QObject {
@@ -991,6 +1019,480 @@ private slots:
         settle();
         QVERIFY(backend.error().contains("Too many levels"));
         QCOMPARE(moved.size(), 1);
+    }
+
+    void backendEditsTasks() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        bool refuse = false;
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.target.contains("project_id=inbox1"))
+                return {200, page({task("a", "Call mum"), task("b", "Other")})};
+            if (request.method == "GET")
+                return {200, page({})};
+            if (refuse)
+                return {400, R"({"error":"Nope"})"};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        backend.showView("inbox");
+        QTRY_COMPARE(backend.tasks().size(), 2);
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        auto shown = [&] { return backend.taskById("a"); };
+
+        // Changed at once, and sent as Todoist counts priority.
+        server.requests.clear();
+        backend.editTask("a", {{"content", " Call dad "}, {"description", "About the trip\n\n"}, {"priority", 1}});
+        QCOMPARE(shown().value("content").toString(), QString("Call dad"));
+        QCOMPARE(shown().value("priority").toInt(), 1);
+        settle();
+        QCOMPARE(server.requests.first().path(), QByteArray("/tasks/a"));
+        QCOMPARE(body(server.requests.first()),
+                 QJsonObject({{"content", "Call dad"}, {"description", "About the trip"}, {"priority", 4}}));
+
+        // Undo sends the old fields back.
+        server.requests.clear();
+        backend.undo();
+        QCOMPARE(shown().value("content").toString(), QString("Call mum"));
+        settle();
+        QCOMPARE(body(server.requests.first()), QJsonObject({{"content", "Call mum"}, {"description", ""}, {"priority", 1}}));
+        QVERIFY(backend.canRedo());
+
+        // Nothing changed, or an empty title: nothing sent.
+        server.requests.clear();
+        backend.editTask("a", {{"content", "  "}, {"priority", 4}, {"description", ""}});
+        backend.setPriority("a", 9);
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+
+        // Turned down: the old title comes back, with the reason.
+        refuse = true;
+        backend.setPriority("b", 2);
+        backend.editTask("a", {{"content", "Lost"}});
+        settle();
+        QCOMPARE(shown().value("content").toString(), QString("Call mum"));
+        QCOMPARE(backend.taskById("b").value("priority").toInt(), 4);
+        QVERIFY(backend.error().contains("Nope"));
+    }
+
+    void backendNestsAndOrdersTasks() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/sync")
+                return syncOk(request);
+            if (request.target.contains("project_id=work")) {
+                QJsonArray list{task("a", "A", QJsonValue(), 1, {}, 1), task("b", "B", QJsonValue(), 1, {}, 2),
+                                task("c", "C", QJsonValue(), 1, {}, 3), task("c1", "C1", QJsonValue(), 1, "c", 1)};
+                for (auto &&value : list) {
+                    QJsonObject object = value.toObject();
+                    object.insert("project_id", "work");
+                    value = object;
+                }
+                return {200, page(list)};
+            }
+            if (request.path() == "/tasks/filter")
+                return {200, page({task("t", "Today", iso(0)), task("u", "Also today", iso(0))})};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+
+        // The dated lists don't nest or reorder.
+        settle();
+        server.requests.clear();
+        backend.indentTask("u");
+        backend.moveTaskBy("t", 1);
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+
+        backend.showView("project:work");
+        QTRY_COMPARE(backend.tasks().size(), 4);
+        settle();
+        auto order = [&] {
+            QStringList list;
+            for (const auto &entry : backend.tasks()) {
+                const QVariantMap map = entry.toMap();
+                list << map.value("id").toString() + ":" + QString::number(map.value("depth").toInt());
+            }
+            return list;
+        };
+        auto moveBody = [&] {
+            for (const auto &r : server.requests)
+                if (r.path().endsWith("/move"))
+                    return body(r);
+            return QJsonObject();
+        };
+
+        // Indent: under the task above, last among its subtasks.
+        server.requests.clear();
+        backend.indentTask("b");
+        QCOMPARE(order(), QStringList({"a:0", "b:1", "c:0", "c1:1"}));
+        settle();
+        QCOMPARE(moveBody(), QJsonObject({{"parent_id", "a"}}));
+        QList<QJsonObject> sent = takeCommands(server);
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(sent.first().value("type").toString(), QString("item_reorder"));
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"items", orders({{"b", 1}})}}));
+
+        // Undo takes it back out, to where it was.
+        backend.undo();
+        settle();
+        QCOMPARE(moveBody(), QJsonObject({{"project_id", "work"}}));
+        sent = takeCommands(server);
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"items", orders({{"a", 1}, {"b", 2}, {"c", 3}})}}));
+
+        // The first task has nothing to go under.
+        backend.indentTask("a");
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+
+        // Outdent: just after its old parent.
+        backend.outdentTask("c1");
+        QCOMPARE(order(), QStringList({"a:0", "b:0", "c:0", "c1:0"}));
+        settle();
+        QCOMPARE(moveBody(), QJsonObject({{"project_id", "work"}}));
+        sent = takeCommands(server);
+        QCOMPARE(sent.first().value("args").toObject(),
+                 QJsonObject({{"items", orders({{"a", 1}, {"b", 2}, {"c", 3}, {"c1", 4}})}}));
+        backend.undo();
+        settle();
+        QCOMPARE(moveBody(), QJsonObject({{"parent_id", "c"}}));
+        server.requests.clear();
+
+        // Moving down a place, past a task and its subtasks.
+        backend.moveTaskBy("b", 1);
+        QCOMPARE(order(), QStringList({"a:0", "c:0", "c1:1", "b:0"}));
+        settle();
+        sent = takeCommands(server);
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"items", orders({{"a", 1}, {"c", 2}, {"b", 3}})}}));
+        backend.undo();
+        QCOMPARE(order(), QStringList({"a:0", "b:0", "c:0", "c1:1"}));
+        settle();
+        sent = takeCommands(server);
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"items", orders({{"a", 1}, {"b", 2}, {"c", 3}})}}));
+
+        // Not past the ends of its level.
+        backend.moveTaskBy("a", -1);
+        backend.moveTaskBy("c1", 1);
+        QTest::qWait(100);
+        QVERIFY(takeCommands(server).isEmpty());
+    }
+
+    void backendRenamesAndReordersSectionsAndProjects() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QJsonArray list = projects;
+        list << QJsonObject{{"id", "home"}, {"name", "Home"}, {"child_order", 2}};
+        const QJsonArray sections{
+            QJsonObject{{"id", "s1"}, {"name", "To do"}, {"project_id", "work"}, {"section_order", 1}},
+            QJsonObject{{"id", "s2"}, {"name", "Done"}, {"project_id", "work"}, {"section_order", 2}},
+        };
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects" && request.method == "GET")
+                return {200, page(list)};
+            if (request.path() == "/sections" && request.method == "GET")
+                return {200, page(sections)};
+            if (request.path() == "/sync")
+                return syncOk(request);
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        backend.showView("project:work");
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        settle();
+        auto headings = [&] {
+            QStringList names;
+            for (const auto &row : backend.rows())
+                names << row.toMap().value("name").toString();
+            return names;
+        };
+        auto sidebar = [&] {
+            QStringList names;
+            for (const auto &entry : backend.projects())
+                names << entry.toMap().value("name").toString();
+            return names;
+        };
+        QCOMPARE(headings(), QStringList({"To do", "Done"}));
+
+        // A section's new name shows at once, and undo puts the old one back.
+        server.requests.clear();
+        backend.renameSection("s1", " Doing ");
+        QCOMPARE(headings(), QStringList({"Doing", "Done"}));
+        settle();
+        QCOMPARE(server.requests.first().path(), QByteArray("/sections/s1"));
+        QCOMPARE(body(server.requests.first()), QJsonObject({{"name", "Doing"}}));
+        backend.undo();
+        QCOMPARE(headings(), QStringList({"To do", "Done"}));
+        settle();
+
+        // So does a project's, in the title too; the Inbox keeps its name.
+        server.requests.clear();
+        backend.renameProject("work", "Job");
+        QCOMPARE(backend.viewName(), QString("Job"));
+        QCOMPARE(sidebar(), QStringList({"Job", "Home"}));
+        settle();
+        QCOMPARE(server.requests.first().path(), QByteArray("/projects/work"));
+        QCOMPARE(body(server.requests.first()), QJsonObject({{"name", "Job"}}));
+        server.requests.clear();
+        backend.renameProject("inbox1", "Mine");
+        backend.renameProject("work", "Job");
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+
+        // Sections reorder within their project.
+        backend.moveSectionBy("s1", 1);
+        QCOMPARE(headings(), QStringList({"Done", "To do"}));
+        settle();
+        QList<QJsonObject> sent = takeCommands(server);
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(sent.first().value("type").toString(), QString("section_reorder"));
+        QCOMPARE(sent.first().value("args").toObject(),
+                 QJsonObject({{"sections", orders({{"s2", 1}, {"s1", 2}}, "section_order")}}));
+        backend.moveSectionBy("s2", -1);
+        QTest::qWait(100);
+        QVERIFY(takeCommands(server).isEmpty());
+
+        // Projects among their siblings, with undo.
+        backend.moveProjectBy("work", 1);
+        QCOMPARE(sidebar(), QStringList({"Home", "Job"}));
+        settle();
+        sent = takeCommands(server);
+        QCOMPARE(sent.first().value("type").toString(), QString("project_reorder"));
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"projects", orders({{"home", 1}, {"work", 2}})}}));
+        backend.undo();
+        QCOMPARE(sidebar(), QStringList({"Job", "Home"}));
+        settle();
+        sent = takeCommands(server);
+        QCOMPARE(sent.first().value("args").toObject(), QJsonObject({{"projects", orders({{"work", 1}, {"home", 2}})}}));
+    }
+
+    void backendAddsAndLoadsSubtasks() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/filter")
+                return {200, page({task("p", "Plan trip", iso(0))})};
+            if (request.target.contains("parent_id=p"))
+                return {200, page({task("c", "Book flights", QJsonValue(), 1, "p", 2),
+                                   task("d", "Pack", QJsonValue(), 1, "p", 1)})};
+            if (request.path() == "/tasks/quick")
+                return {200, QJsonDocument(task("new", "Find a sitter")).toJson()};
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        settle();
+
+        // A subtask goes under its parent, even from Today.
+        server.requests.clear();
+        backend.add("Find a sitter", {}, "p");
+        settle();
+        bool under = false;
+        for (const auto &r : server.requests)
+            under |= r.path() == "/tasks/new/move" && body(r) == QJsonObject({{"parent_id", "p"}});
+        QVERIFY(under);
+
+        // Today doesn't list them all, so they're fetched, in Todoist's order.
+        QSignalSpy changed(&backend, &Backend::subtasksChanged);
+        backend.loadSubtasks("p");
+        QTRY_VERIFY(changed.size() > 0);
+        QStringList ids;
+        for (const auto &entry : backend.subtasksOf("p"))
+            ids << entry.toMap().value("id").toString();
+        QCOMPARE(ids, QStringList({"d", "c"}));
+        QCOMPARE(backend.taskById("c").value("parentId").toString(), QString("p"));
+
+        // They can be completed and edited like any task.
+        backend.complete("d");
+        QCOMPARE(backend.subtasksOf("p").size(), 1);
+        settle();
+        server.requests.clear();
+        backend.editTask("c", {{"content", "Book trains"}});
+        QCOMPARE(backend.subtasksOf("p").first().toMap().value("content").toString(), QString("Book trains"));
+        settle();
+        QCOMPARE(server.requests.first().path(), QByteArray("/tasks/c"));
+
+        backend.forgetSubtasks();
+        QVERIFY(backend.taskById("c").isEmpty());
+        QVERIFY(backend.subtasksOf("p").isEmpty());
+    }
+
+    void backendDropsDraggedRows() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QJsonArray list = projects;
+        list << QJsonObject{{"id", "home"}, {"name", "Home"}, {"child_order", 2}}
+             << QJsonObject{{"id", "sub"}, {"name", "Sub"}, {"parent_id", "work"}, {"child_order", 1}};
+        const QJsonArray sections{
+            QJsonObject{{"id", "s1"}, {"name", "Later"}, {"project_id", "work"}, {"section_order", 1}},
+            QJsonObject{{"id", "s2"}, {"name", "Empty"}, {"project_id", "work"}, {"section_order", 2}},
+        };
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(list)};
+            if (request.path() == "/sections" && request.method == "GET")
+                return {200, page(sections)};
+            if (request.path() == "/sync")
+                return syncOk(request);
+            if (request.target.contains("project_id=work")) {
+                QJsonArray found{task("a", "A", QJsonValue(), 1, {}, 1), task("b", "B", QJsonValue(), 1, {}, 2),
+                                 task("c", "C", QJsonValue(), 1, {}, 3), task("c1", "C1", QJsonValue(), 1, "c", 1),
+                                 task("d", "D", QJsonValue(), 1, {}, 1)};
+                for (auto &&value : found) {
+                    QJsonObject object = value.toObject();
+                    object.insert("project_id", "work");
+                    if (object.value("id") == "d")
+                        object.insert("section_id", "s1");
+                    value = object;
+                }
+                return {200, page(found)};
+            }
+            if (request.method == "GET")
+                return {200, page({})};
+            return {200, "{}"};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        backend.showView("project:work");
+        QTRY_COMPARE(backend.tasks().size(), 5);
+        auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        settle();
+        server.requests.clear();
+        // Rows: a, b, c, c1 (under c), Later, d, Empty.
+        auto shown = [&] {
+            QStringList keys;
+            for (const auto &entry : backend.rows()) {
+                const QVariantMap row = entry.toMap();
+                keys << (row.value("kind") == "section" ? "#" + row.value("id").toString()
+                                                        : row.value("id").toString() + ":" + row.value("depth").toString());
+            }
+            return keys;
+        };
+        QCOMPARE(shown(), QStringList({"a:0", "b:0", "c:0", "c1:1", "#s1", "d:0", "#s2"}));
+        auto moved = [&] {
+            for (const auto &r : server.requests)
+                if (r.path().endsWith("/move"))
+                    return body(r);
+            return QJsonObject();
+        };
+        auto reorder = [&] {
+            const QList<QJsonObject> sent = takeCommands(server);
+            return sent.isEmpty() ? QJsonObject() : sent.last().value("args").toObject();
+        };
+
+        // In front of a subtask: a subtask too, of the same parent.
+        backend.dropTask("a", 3);
+        QCOMPARE(shown(), QStringList({"b:0", "c:0", "a:1", "c1:1", "#s1", "d:0", "#s2"}));
+        settle();
+        QCOMPARE(moved(), QJsonObject({{"parent_id", "c"}}));
+        QCOMPARE(reorder(), QJsonObject({{"items", orders({{"a", 1}, {"c1", 2}})}}));
+        // Undo puts it back where it was.
+        backend.undo();
+        settle();
+        QCOMPARE(moved(), QJsonObject({{"project_id", "work"}}));
+        QCOMPARE(reorder(), QJsonObject({{"items", orders({{"a", 1}, {"b", 2}, {"c", 3}})}}));
+
+        // To the top, with its subtask: just a reorder.
+        backend.dropTask("c", 0);
+        QCOMPARE(shown(), QStringList({"c:0", "c1:1", "a:0", "b:0", "#s1", "d:0", "#s2"}));
+        settle();
+        QCOMPARE(moved(), QJsonObject());
+        QCOMPARE(reorder(), QJsonObject({{"items", orders({{"c", 1}, {"a", 2}, {"b", 3}})}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+
+        // Into a section, in front of its task.
+        backend.dropTask("b", 5);
+        settle();
+        QCOMPARE(moved(), QJsonObject({{"section_id", "s1"}}));
+        QCOMPARE(reorder(), QJsonObject({{"items", orders({{"b", 1}, {"d", 2}})}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+
+        // Just above a heading: last in the section above, at the top level.
+        backend.dropTask("a", 4);
+        settle();
+        QCOMPARE(moved(), QJsonObject());
+        QCOMPARE(reorder(), QJsonObject({{"items", orders({{"b", 1}, {"c", 2}, {"a", 3}})}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+
+        // Under an empty section's heading: into it.
+        backend.dropTask("b", 7);
+        settle();
+        QCOMPARE(moved(), QJsonObject({{"section_id", "s2"}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+
+        // Onto itself, or among its own subtasks: nothing.
+        backend.dropTask("c", 3);
+        backend.dropTask("c", 2);
+        backend.dropTask("b", 1);
+        QTest::qWait(100);
+        QVERIFY(server.requests.isEmpty());
+
+        // A section goes among the headings above where it's dropped.
+        backend.dropSection("s2", 4);
+        QCOMPARE(shown().mid(4), QStringList({"#s2", "#s1", "d:0"}));
+        settle();
+        QCOMPARE(reorder(), QJsonObject({{"sections", orders({{"s2", 1}, {"s1", 2}}, "section_order")}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+        // In front of the next heading is where it already is; the end isn't.
+        backend.dropSection("s1", 6);
+        QTest::qWait(100);
+        QVERIFY(takeCommands(server).isEmpty());
+        backend.dropSection("s1", 7);
+        settle();
+        QCOMPARE(reorder(), QJsonObject({{"sections", orders({{"s2", 1}, {"s1", 2}}, "section_order")}}));
+
+        // A project, among its siblings: the sidebar is work, sub, home.
+        backend.dropProject("home", 0);
+        settle();
+        QCOMPARE(reorder(), QJsonObject({{"projects", orders({{"home", 1}, {"work", 2}})}}));
+        backend.undo();
+        settle();
+        server.requests.clear();
+        backend.dropProject("work", 2);
+        backend.dropProject("sub", 3);
+        QTest::qWait(100);
+        QVERIFY(takeCommands(server).isEmpty());
+        backend.dropProject("work", 3);
+        settle();
+        QCOMPARE(reorder(), QJsonObject({{"projects", orders({{"home", 1}, {"work", 2}})}}));
     }
 
     void themeFallsBack() {

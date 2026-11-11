@@ -63,8 +63,14 @@ namespace Tasks {
 
 QList<Task> parse(const QJsonArray &array);
 QList<Project> parseProjects(const QJsonArray &array);
+// Projects in the sidebar's order: the Inbox first, then each project
+// followed by its sub-projects, siblings by their order. One whose parent
+// isn't listed (archived, say) goes at the top level.
+QList<Project> orderProjects(const QList<Project> &projects);
 // Live sections, each project's in Todoist's order.
 QList<Section> parseSections(const QJsonArray &array);
+// Each project's sections together, in Todoist's order.
+void orderSections(QList<Section> &sections);
 
 // The order the Today and Upcoming views list tasks in: by when they're due,
 // timed tasks before untimed ones on the same day, then by priority.

@@ -95,9 +95,11 @@ QList<Project> parseProjects(const QJsonArray &array) {
             continue;
         projects << Project::fromJson(object);
     }
-    // Todoist's child_order only ranks siblings, so this walks the tree: the
-    // Inbox first, then each project followed by its sub-projects. One whose
-    // parent isn't listed (archived, say) is shown at the top level.
+    return orderProjects(projects);
+}
+
+QList<Project> orderProjects(const QList<Project> &projects) {
+    // Todoist's child_order only ranks siblings, so this walks the tree.
     QSet<QString> ids;
     for (const auto &project : projects)
         ids.insert(project.id);
@@ -134,12 +136,16 @@ QList<Section> parseSections(const QJsonArray &array) {
             continue;
         sections << Section::fromJson(object);
     }
+    orderSections(sections);
+    return sections;
+}
+
+void orderSections(QList<Section> &sections) {
     std::stable_sort(sections.begin(), sections.end(), [](const Section &a, const Section &b) {
         if (a.projectId != b.projectId)
             return a.projectId < b.projectId;
         return a.order < b.order;
     });
-    return sections;
 }
 
 void sortByDue(QList<Task> &tasks) {
@@ -235,6 +241,7 @@ QVariantMap toVariant(const Task &task, const QDateTime &now, const QHash<QStrin
                   : task.hasDue() ? task.dueDate.toString(Qt::ISODate) : QString()},
         {"projectId", task.projectId},
         {"sectionId", task.sectionId},
+        {"parentId", task.parentId},
         {"projectName", project.inbox ? QString() : project.name},
         {"projectColor", colorHex(project.color)},
         {"inbox", project.inbox},

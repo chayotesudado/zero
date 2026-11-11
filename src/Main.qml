@@ -24,10 +24,19 @@ ApplicationWindow {
     property bool helpVisible: false
     // Single-key shortcuts stand down while typing into a field.
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
-    readonly property bool pickerOpen: movePicker.opened || schedulePicker.opened
-                                       || newProjectDialog.opened || deleteProjectDialog.opened
-                                       || projectColorDialog.opened || sectionDialog.opened || confirmDialog.opened
+    // Visible, not opened: a popup counts from the moment it starts to open,
+    // since opened waits for its animation, and a click that opened one
+    // mustn't hand the keyboard back to the list in the meantime.
+    readonly property bool pickerOpen: movePicker.visible || schedulePicker.visible
+                                       || newProjectDialog.visible || deleteProjectDialog.visible
+                                       || projectColorDialog.visible || sectionDialog.visible || confirmDialog.visible
+                                       || taskDetail.visible || projectMenu.visible
     readonly property bool keysLive: backend.signedIn && !typing && !helpVisible && !pickerOpen
+    // The task details take a few of the list's keys (D, M, Ctrl+1–4) for
+    // the task they show, when nothing is open over them.
+    readonly property bool detailKeys: taskDetail.visible && !typing && !movePicker.visible && !schedulePicker.visible
+                                       && !confirmDialog.visible
+    readonly property bool inProject: backend.view.indexOf("project:") === 0
     readonly property string today: Dates.isoToday()
     // Projects and the Inbox have sections; the dated lists don't.
     readonly property bool sectionsHere: backend.view === "inbox" || backend.view.indexOf("project:") === 0
@@ -66,6 +75,67 @@ ApplicationWindow {
     function selectedTask() {
         var row = selectedRow()
         return row && row.kind === "task" ? row : null
+    }
+
+    // The task a key acts on: the one the details show, or the selected one.
+    function targetTask() {
+        return taskDetail.visible ? taskDetail.task : selectedTask()
+    }
+
+    // A click on a row takes the keyboard back to the list, unless the click
+    // was on one of its buttons and opened something: the row hears that
+    // tap too, and taking focus from the popup would leave Esc nowhere to go.
+    function focusList() {
+        if (!win.pickerOpen) taskList.forceActiveFocus()
+    }
+
+    // Back to the details if they're open under what just closed, else the list.
+    function refocus() {
+        if (taskDetail.visible) taskDetail.contentItem.forceActiveFocus()
+        else taskList.forceActiveFocus()
+    }
+
+    // Enter: a task opens; a section's heading is renamed.
+    function openSelected() {
+        var row = selectedRow()
+        if (!row) return
+        if (row.kind === "section") sectionDialog.openRenameSection(row)
+        else taskDetail.openFor(row.id)
+    }
+
+    // Alt+J/K: the selected task or section a place down or up.
+    function moveSelectedBy(delta) {
+        var row = selectedRow()
+        if (!row) return
+        if (row.kind === "section") backend.moveSectionBy(row.id, delta)
+        else backend.moveTaskBy(row.id, delta)
+    }
+
+    // Where a drag over a list would drop, by its y in the list: in front of
+    // the row under it, or after that row past its middle; count at the end.
+    function dropIndexIn(view, count, y) {
+        var cy = y + view.contentY
+        var i = view.indexAt(view.width / 2, cy)
+        if (i < 0) {
+            var first = view.itemAtIndex(0)
+            return first && cy < first.y ? 0 : count
+        }
+        var row = view.itemAtIndex(i)
+        return cy - row.y < row.height / 2 ? i : i + 1
+    }
+
+    // The line marking a drop at index, in the list's content coordinates.
+    function dropLineY(view, count, index) {
+        var row = view.itemAtIndex(Math.min(index, count - 1))
+        if (!row) return -1
+        return index >= count ? row.y + row.height : row.y
+    }
+
+    function addSubtask() {
+        var t = selectedTask()
+        if (!t) return
+        addField.parentTask = t
+        addField.forceActiveFocus()
     }
 
     function completeSelected() {
@@ -133,7 +203,7 @@ ApplicationWindow {
 
     Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.helpVisible = !win.helpVisible }
     Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut; enabled: !win.pickerOpen && (win.helpVisible || addField.activeFocus)
-        onActivated: { if (win.helpVisible) win.helpVisible = false; else { addField.text = ""; taskList.forceActiveFocus() } } }
+        onActivated: { if (win.helpVisible) win.helpVisible = false; else { addField.text = ""; addField.parentTask = null; taskList.forceActiveFocus() } } }
     Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: Qt.quit() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.completeSelected() }
     Shortcut { sequences: ["N", "A"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: addField.forceActiveFocus() }
@@ -141,13 +211,13 @@ ApplicationWindow {
     Shortcut { sequences: ["K", "Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: taskList.moveSelection(-1) }
     Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) Qt.openUrlExternally(t.url) } }
-    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.moveTask(win.selectedTask()) }
+    Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive || win.detailKeys; onActivated: win.moveTask(win.targetTask()) }
     Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
         onActivated: win.moveProject(win.currentProject()) }
     Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.deleteRow(win.selectedRow()) }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
         onActivated: sectionDialog.openNew(backend.viewName) }
-    Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: schedulePicker.openFor(win.selectedTask()) }
+    Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: win.keysLive || win.detailKeys; onActivated: schedulePicker.openFor(win.targetTask()) }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) backend.schedule(t.id, "today") } }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: newProjectDialog.openNew() }
@@ -156,6 +226,37 @@ ApplicationWindow {
     Shortcut { sequence: "Ctrl+Delete"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
         onActivated: deleteProjectDialog.openFor(win.currentProject()) }
     Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.refresh() }
+    Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.openSelected() }
+    Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; context: Qt.ApplicationShortcut; enabled: taskDetail.visible
+        onActivated: taskDetail.close() }
+    Shortcut { sequence: "Shift+N"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.addSubtask() }
+    Shortcut { sequences: ["Ctrl+]", "Tab"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
+        onActivated: { var t = win.selectedTask(); if (t) backend.indentTask(t.id) } }
+    Shortcut { sequences: ["Ctrl+[", "Shift+Tab", "Backtab"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
+        onActivated: { var t = win.selectedTask(); if (t) backend.outdentTask(t.id) } }
+    Shortcut { sequences: ["Alt+J", "Alt+Down"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
+        onActivated: win.moveSelectedBy(1) }
+    Shortcut { sequences: ["Alt+K", "Alt+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
+        onActivated: win.moveSelectedBy(-1) }
+    Shortcut { sequences: ["Alt+Shift+J", "Alt+Shift+Down"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
+        onActivated: backend.moveProjectBy(win.currentProject().id, 1) }
+    Shortcut { sequences: ["Alt+Shift+K", "Alt+Shift+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
+        onActivated: backend.moveProjectBy(win.currentProject().id, -1) }
+    Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
+        onActivated: sectionDialog.openRenameProject(win.currentProject()) }
+    // Priority as users count it: Ctrl+1 is p1. Plain 1–3 pick lists.
+    Repeater {
+        model: 4
+        Item {
+            required property int index
+            Shortcut {
+                sequence: "Ctrl+" + (index + 1)
+                context: Qt.ApplicationShortcut
+                enabled: win.keysLive || (taskDetail.visible && !movePicker.visible && !schedulePicker.visible && !confirmDialog.visible)
+                onActivated: { var t = win.targetTask(); if (t) backend.setPriority(t.id, index + 1) }
+            }
+        }
+    }
     Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("inbox") }
     Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("today") }
     Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("upcoming") }
@@ -252,6 +353,7 @@ ApplicationWindow {
                     }
 
                     ListView {
+                        id: projectList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
@@ -260,12 +362,34 @@ ApplicationWindow {
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         delegate: SidebarItem {
                             required property var modelData
+                            required property int index
                             width: ListView.view.width
                             view: "project:" + modelData.id
                             label: modelData.name
                             dotColor: modelData.color
                             indent: modelData.depth
                             project: modelData
+                        }
+
+                        // A project being dragged, among its siblings.
+                        property var dragProject: null
+                        property int dropAt: -1
+                        function dragMoved(scenePoint) {
+                            var p = mapFromItem(null, scenePoint.x, scenePoint.y)
+                            dropAt = win.dropIndexIn(projectList, backend.projects.length, p.y)
+                        }
+                        function dropDragged() {
+                            if (dragProject && dropAt >= 0) backend.dropProject(dragProject.id, dropAt)
+                            dragProject = null
+                            dropAt = -1
+                        }
+
+                        DropLine {
+                            visible: projectList.dragProject !== null && projectList.dropAt >= 0
+                            y: Math.max(0, (projectList.dropAt, projectList.contentHeight,
+                                win.dropLineY(projectList, backend.projects.length, projectList.dropAt)) - 1)
+                            x: 20 + (projectList.dragProject ? projectList.dragProject.depth : 0) * 14
+                            width: projectList.width - x - 12
                         }
                     }
 
@@ -377,7 +501,12 @@ ApplicationWindow {
                     selectedTextColor: theme.foreground
                     // Says where a new task lands, since that depends on the list.
                     readonly property string section: (taskList.currentIndex, backend.rows, win.sectionName(win.addSection()))
-                    placeholderText: backend.view === "today" ? qsTr("Add to Today (N)")
+                    // Set by Shift+N: what's added goes under this task,
+                    // until Esc or the box is left.
+                    property var parentTask: null
+                    onActiveFocusChanged: if (!activeFocus) parentTask = null
+                    placeholderText: parentTask ? qsTr("Add a subtask to “%1”").arg(parentTask.content)
+                                   : backend.view === "today" ? qsTr("Add to Today (N)")
                                    : backend.view === "upcoming" ? qsTr("Add a task (N)")
                                    : section !== "" ? qsTr("Add to %1 / %2 (N)").arg(backend.viewName).arg(section)
                                    : qsTr("Add to %1 (N)").arg(backend.viewName)
@@ -389,7 +518,8 @@ ApplicationWindow {
                     }
                     onAccepted: {
                         if (text.trim() === "") return
-                        backend.add(text, win.addSection())
+                        if (parentTask) backend.add(text, "", parentTask.id)
+                        else backend.add(text, win.addSection())
                         text = ""
                     }
                 }
@@ -398,7 +528,8 @@ ApplicationWindow {
                     Layout.topMargin: 4
                     Layout.bottomMargin: 8
                     text: addField.activeFocus
-                          ? (backend.view === "upcoming"
+                          ? (addField.parentTask ? qsTr("Goes under “%1”, wherever it is. Dates and p1–p4 work. Esc to stop.").arg(addField.parentTask.content)
+                             : backend.view === "upcoming"
                              ? qsTr("Quick add: “Pay rent friday 9am #Home p1 @errand”. Without a #project it goes to the Inbox.")
                              : qsTr("Quick add: dates, #project, @label and p1–p4 work. A #project or date you type wins."))
                           : " "
@@ -452,6 +583,92 @@ ApplicationWindow {
                         function onViewChanged() { taskList.selectedId = ""; taskList.currentIndex = -1 }
                     }
 
+                    // A row being dragged (a task or a section's heading), and
+                    // where it would land: in front of the row at dropAt.
+                    // Only projects and the Inbox keep an order to drag in.
+                    property var dragRow: null
+                    property int dropAt: -1
+                    property point dragPoint: Qt.point(0, 0)
+                    function dragMoved(scenePoint) {
+                        dragPoint = mapFromItem(null, scenePoint.x, scenePoint.y)
+                        dropAt = win.dropIndexIn(taskList, backend.rows.length, dragPoint.y)
+                    }
+                    function dropDragged() {
+                        var row = dragRow, at = dropAt
+                        dragRow = null
+                        dropAt = -1
+                        if (!row || at < 0) return
+                        if (row.kind === "section") backend.dropSection(row.id, at)
+                        else backend.dropTask(row.id, at)
+                    }
+                    // The level a task would take, to indent the line by: the
+                    // task it lands in front of, past itself and its subtasks,
+                    // as the backend reads a drop.
+                    readonly property int dropDepth: {
+                        var rows = backend.rows
+                        if (!dragRow || dragRow.kind === "section" || dropAt < 0) return 0
+                        var from = -1, to = -1
+                        for (var k = 0; k < rows.length; k++)
+                            if (rows[k].key === dragRow.key) from = k
+                        to = from + 1
+                        while (from >= 0 && to < rows.length && rows[to].kind === "task" && rows[to].depth > rows[from].depth) to++
+                        for (var i = dropAt; i < rows.length; i++) {
+                            if (i >= from && i < to) continue
+                            return rows[i].kind === "task" ? (rows[i].depth || 0) : 0
+                        }
+                        return 0
+                    }
+
+                    // Near the top or bottom edge, the list scrolls under the drag.
+                    Timer {
+                        interval: 16
+                        repeat: true
+                        running: taskList.dragRow !== null && (taskList.dragPoint.y < 36 || taskList.dragPoint.y > taskList.height - 36)
+                        onTriggered: {
+                            var top = taskList.originY
+                            var bottom = taskList.originY + Math.max(0, taskList.contentHeight - taskList.height)
+                            var step = taskList.dragPoint.y < 36 ? -8 : 8
+                            taskList.contentY = Math.max(top, Math.min(bottom, taskList.contentY + step))
+                            taskList.dropAt = win.dropIndexIn(taskList, backend.rows.length, taskList.dragPoint.y)
+                        }
+                    }
+
+                    DropLine {
+                        visible: taskList.dragRow !== null && taskList.dropAt >= 0
+                        y: Math.max(0, (taskList.dropAt, taskList.contentHeight,
+                            win.dropLineY(taskList, backend.rows.length, taskList.dropAt)) - 1)
+                        x: 16 + taskList.dropDepth * 26
+                        width: taskList.width - x - 16
+                        z: 5
+                    }
+
+                    // What's being dragged, under the pointer.
+                    Rectangle {
+                        visible: taskList.dragRow !== null
+                        z: 6
+                        x: taskList.dragPoint.x + 14
+                        y: taskList.dragPoint.y + taskList.contentY - height / 2
+                        width: Math.min(ghostLabel.implicitWidth + 24, 320)
+                        height: ghostLabel.implicitHeight + 12
+                        radius: Math.min(6, theme.radius)
+                        color: theme.lighterBackground
+                        border.color: theme.accent
+                        opacity: 0.95
+                        Label {
+                            id: ghostLabel
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            width: parent.width - 24
+                            elide: Text.ElideRight
+                            textFormat: Text.PlainText
+                            text: !taskList.dragRow ? "" : taskList.dragRow.kind === "section" ? taskList.dragRow.name : taskList.dragRow.content
+                            font.pixelSize: 13
+                            font.bold: !!taskList.dragRow && taskList.dragRow.kind === "section"
+                            color: theme.foreground
+                        }
+                    }
+
                     readonly property bool grouped: backend.view === "today" || backend.view === "upcoming"
                     section.property: grouped ? "group" : ""
                     section.delegate: Item {
@@ -488,8 +705,28 @@ ApplicationWindow {
                         readonly property bool current: ListView.isCurrentItem
                         width: ListView.view.width
                         height: loader.item ? loader.item.implicitHeight : 0
+                        opacity: taskList.dragRow && taskList.dragRow.key === modelData.key ? 0.35 : 1
 
                         function complete() { if (!isSection && loader.item) loader.item.complete() }
+
+                        // Dragging picks the row up; it lands where the line shows.
+                        DragHandler {
+                            target: null
+                            enabled: win.sectionsHere
+                            cursorShape: Qt.ClosedHandCursor
+                            onActiveChanged: {
+                                if (active) {
+                                    taskList.select(entry.index)
+                                    taskList.forceActiveFocus()
+                                    taskList.dragRow = entry.modelData
+                                } else {
+                                    taskList.dropDragged()
+                                }
+                            }
+                            onCentroidChanged: if (active) taskList.dragMoved(centroid.scenePosition)
+                        }
+                        // A refresh that rebuilds the list mid-drag ends it.
+                        Component.onDestruction: if (taskList.dragRow && taskList.dragRow.key === modelData.key) taskList.dragRow = null
 
                         Loader {
                             id: loader
@@ -502,11 +739,12 @@ ApplicationWindow {
                                 task: entry.modelData
                                 selected: entry.current
                                 showProject: taskList.grouped
-                                onSelectRequested: { taskList.select(entry.index); taskList.forceActiveFocus() }
+                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onCompleteRequested: backend.complete(entry.modelData.id)
                                 onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
                                 onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
                                 onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                                onOpenRequested: { taskList.select(entry.index); taskDetail.openFor(entry.modelData.id) }
                             }
                         }
                         Component {
@@ -514,9 +752,10 @@ ApplicationWindow {
                             SectionRow {
                                 section: entry.modelData
                                 selected: entry.current
-                                onSelectRequested: { taskList.select(entry.index); taskList.forceActiveFocus() }
+                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onAddRequested: { taskList.select(entry.index); addField.forceActiveFocus() }
                                 onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                                onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
                             }
                         }
                     }
@@ -581,7 +820,7 @@ ApplicationWindow {
             // What's moving: a task, or a project under another.
             property string mode: "task"
             property var target: null
-            onClosed: taskList.forceActiveFocus()
+            onClosed: win.refocus()
             onChosen: function(item) {
                 if (!target) return
                 if (mode === "project") backend.moveProject(target.id, item.projectId)
@@ -597,7 +836,7 @@ ApplicationWindow {
         ConfirmDialog {
             id: confirmDialog
             property var pending: null
-            onClosed: taskList.forceActiveFocus()
+            onClosed: win.refocus()
             onConfirmed: {
                 if (!pending) return
                 if (pending.kind === "undo-add") {
@@ -611,7 +850,15 @@ ApplicationWindow {
 
         SchedulePicker {
             id: schedulePicker
+            onClosed: win.refocus()
+        }
+
+        TaskDetail {
+            id: taskDetail
             onClosed: taskList.forceActiveFocus()
+            onScheduleRequested: function(task) { schedulePicker.openFor(task) }
+            onMoveRequested: function(task) { win.moveTask(task) }
+            onDeleteRequested: function(task) { win.deleteRow(task) }
         }
 
         NewProjectDialog {
@@ -634,12 +881,24 @@ ApplicationWindow {
             property var project: null
             Material.roundedScale: theme.radius
             MenuItem {
+                text: qsTr("Rename…")
+                onTriggered: sectionDialog.openRenameProject(projectMenu.project)
+            }
+            MenuItem {
                 text: qsTr("Change color…")
                 onTriggered: projectColorDialog.openFor(projectMenu.project)
             }
             MenuItem {
                 text: qsTr("Move under…")
                 onTriggered: win.moveProject(projectMenu.project)
+            }
+            MenuItem {
+                text: qsTr("Move up")
+                onTriggered: backend.moveProjectBy(projectMenu.project.id, -1)
+            }
+            MenuItem {
+                text: qsTr("Move down")
+                onTriggered: backend.moveProjectBy(projectMenu.project.id, 1)
             }
             MenuItem {
                 text: qsTr("Delete project…")
@@ -675,6 +934,21 @@ ApplicationWindow {
                 width: 320
             }
             onAccepted: backend.signOut()
+        }
+    }
+
+    // Where a dragged row would land.
+    component DropLine: Rectangle {
+        height: 2
+        radius: 1
+        color: theme.accent
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            x: -4
+            width: 8
+            height: 8
+            radius: 4
+            color: theme.accent
         }
     }
 
@@ -769,7 +1043,18 @@ ApplicationWindow {
         }
 
         HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
-        TapHandler { onTapped: { backend.showView(item.view); taskList.forceActiveFocus() } }
+        TapHandler { onTapped: { backend.showView(item.view); win.focusList() } }
+        opacity: item.project && projectList.dragProject && projectList.dragProject.id === item.project.id ? 0.35 : 1
+        DragHandler {
+            target: null
+            enabled: item.project !== null
+            cursorShape: Qt.ClosedHandCursor
+            onActiveChanged: {
+                if (active) projectList.dragProject = item.project
+                else projectList.dropDragged()
+            }
+            onCentroidChanged: if (active) projectList.dragMoved(centroid.scenePosition)
+        }
         TapHandler {
             acceptedButtons: Qt.RightButton
             enabled: item.project !== null

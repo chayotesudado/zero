@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QJsonObject>
 #include <QSet>
 #include <QList>
 #include <QObject>
@@ -70,8 +71,9 @@ public:
     Q_INVOKABLE void complete(const QString &taskId);
     // Quick add, filed into the list on screen: a project view's project,
     // and today's date in Today, unless the text names its own.
-    // sectionId files it into one of the list's sections.
-    Q_INVOKABLE void add(const QString &text, const QString &sectionId = {});
+    // sectionId files it into one of the list's sections; parentId makes it
+    // a subtask of that task instead, wherever the task is.
+    Q_INVOKABLE void add(const QString &text, const QString &sectionId = {}, const QString &parentId = {});
     // Gone for good, with its subtasks; Todoist has no way back.
     Q_INVOKABLE void deleteTask(const QString &taskId);
     // How many of its subtasks are in the list on screen.
@@ -81,8 +83,41 @@ public:
     // Natural language, as Todoist reads it: "tomorrow 5pm", "next monday",
     // "every friday", or "no date" to clear it.
     Q_INVOKABLE void schedule(const QString &taskId, const QString &dueString);
+    // Changes any of "content", "description", and "priority" (1 is p1, as
+    // users count it). Unchanged fields, and an empty content, are left be.
+    Q_INVOKABLE void editTask(const QString &taskId, const QVariantMap &changes);
+    Q_INVOKABLE void setPriority(const QString &taskId, int priority);
+    // In a project's list: makes the task a subtask of the one above it at
+    // its level, or (outdent) a sibling of its parent, just after it.
+    Q_INVOKABLE void indentTask(const QString &taskId);
+    Q_INVOKABLE void outdentTask(const QString &taskId);
+    // Moves a task among its siblings in a project's list, a section among
+    // its project's, or a project among its siblings in the sidebar, by
+    // delta places (-1 up, 1 down).
+    Q_INVOKABLE void moveTaskBy(const QString &taskId, int delta);
+    Q_INVOKABLE void moveSectionBy(const QString &sectionId, int delta);
+    Q_INVOKABLE void moveProjectBy(const QString &projectId, int delta);
+    // Dragged and dropped in a project's list, in front of the row at
+    // rowIndex in rows (rows.length for the end). A task takes the level of
+    // the task it lands in front of, or else the top of the section above;
+    // a section, its place among the headings above.
+    Q_INVOKABLE void dropTask(const QString &taskId, int rowIndex);
+    Q_INVOKABLE void dropSection(const QString &sectionId, int rowIndex);
+    // In front of the project at index in projects(), among its siblings.
+    Q_INVOKABLE void dropProject(const QString &projectId, int index);
+    // A task the app knows of, the list's or a loaded subtask, in the shape
+    // rows have; empty when it isn't known.
+    Q_INVOKABLE QVariantMap taskById(const QString &taskId) const;
+    // A task's direct subtasks, in Todoist's order: the ones in the list on
+    // screen, and the ones loadSubtasks fetched (a dated list doesn't show
+    // them all). Changes announce subtasksChanged.
+    Q_INVOKABLE QVariantList subtasksOf(const QString &taskId) const;
+    Q_INVOKABLE void loadSubtasks(const QString &taskId);
+    // Drops the fetched subtasks, once nothing shows them.
+    Q_INVOKABLE void forgetSubtasks();
     Q_INVOKABLE void createProject(const QString &name, const QString &color = {});
     Q_INVOKABLE void setProjectColor(const QString &projectId, const QString &color);
+    Q_INVOKABLE void renameProject(const QString &projectId, const QString &name);
     // Counts what deleting would take with it; answers with projectContents.
     Q_INVOKABLE void inspectProject(const QString &projectId);
     Q_INVOKABLE void deleteProject(const QString &projectId);
@@ -95,6 +130,7 @@ public:
     Q_INVOKABLE void createSection(const QString &name);
     // Todoist deletes the section's tasks with it.
     Q_INVOKABLE void deleteSection(const QString &sectionId);
+    Q_INVOKABLE void renameSection(const QString &sectionId, const QString &name);
     // Undoing an add deletes the task from Todoist for good, so the UI asks
     // first: when the next undo would, this is {id, text} of that task, and
     // empty otherwise.
@@ -117,6 +153,7 @@ signals:
     void projectsChanged();
     void countsChanged();
     void historyChanged();
+    void subtasksChanged();
     void signInFailed(const QString &message);
     void added(const QString &content);
     void projectCreated(const QString &name);
@@ -130,20 +167,35 @@ signals:
 
 private:
     struct Step {
-        // For ProjectMoved, taskId is the project's id.
-        enum Kind { Completed, Added, Moved, Scheduled, ProjectMoved } kind;
-        QString taskId;
-        QString text;
-        Task task;
+        // For ProjectMoved and ProjectEdited, taskId is the project's id; for
+        // SectionEdited, the section's; for Reordered, whatever was moved.
+        enum Kind { Completed, Added, Moved, Scheduled, ProjectMoved, Edited, ProjectEdited, SectionEdited, Reordered } kind;
+        QString taskId = {};
+        QString text = {};
+        Task task = {};
         // For a move, the projects; for a reschedule, the due strings; for
         // an add, to is the project it was filed into, if it was moved there;
-        // for a project's move, its parents.
-        QString from, to;
+        // for a project's move, its parents; for a section's rename or a
+        // reorder, from is the project it's in.
+        QString from = {}, to = {};
         // For a move or an add, the sections, if any.
         QString fromSection = {}, toSection = {};
         // For an add made in Today, which dated it today after quick add.
         bool datedToday = false;
+        // For a move, the parent tasks, if any; for an add, the task it was
+        // made under.
+        QString fromParent = {}, toParent = {};
+        // For an edit, the fields before and after, as Todoist's update takes
+        // them; for a reorder, the command's args. For a move, the
+        // item_reorder args that put its new siblings in order afterwards,
+        // if it needs them (an indent or outdent).
+        QJsonObject before = {}, after = {};
+        // For a reorder, the Sync command that makes it.
+        QString command = {};
     };
+
+    // Whether a step is about the task with its taskId, not a project or section.
+    static bool aboutTask(const Step &step);
 
     void begin();
     void end();
@@ -169,6 +221,28 @@ private:
     void applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applyProjectMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    void applyEdit(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    void applyReorder(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    // Any step but a completion or an add, which undo and redo handle themselves.
+    void applyStep(const Step &step, bool forward, std::function<void(const ApiError &)> done);
+    // Patches every copy of a task (the list's, a loaded subtask's).
+    void patchTask(const QString &taskId, const std::function<void(Task &)> &patch);
+    // Puts the child orders in a reorder command's args into the tasks,
+    // sections, or projects they name, and re-sorts what's shown.
+    void applyOrders(const QString &command, const QJsonObject &args);
+    // Re-sorts a project's list after its tasks' nesting or order changed.
+    void resort();
+    // The tasks at the same level as one in the list on screen, in the order
+    // shown: the same parent, in the same section.
+    QList<Task> siblingsOf(const Task &task) const;
+    static QJsonObject itemOrders(const QList<Task> &tasks, bool renumber);
+    // The task and its subtasks in the list on screen.
+    QSet<QString> subtreeOf(const QString &taskId) const;
+    QList<Project> projectSiblings(const Project &project) const;
+    // Reorder steps, taking a level from old to now (each in order).
+    void reorderTasks(const Task &task, const QList<Task> &old, const QList<Task> &now);
+    void reorderSections(const Section &section, const QList<Section> &old, const QList<Section> &now);
+    void reorderProjects(const Project &project, const QList<Project> &old, const QList<Project> &now);
     void undoFailed(const Step &step, const ApiError &error);
     void reloadSoon();
 
@@ -192,5 +266,10 @@ private:
     // The error a failed load showed, which the next good load clears.
     QString m_loadError;
     QList<Step> m_undo, m_redo;
+    // Subtasks fetched for a task's details, by parent; m_watching is the
+    // task whose subtasks reload with the list.
+    QHash<QString, QList<Task>> m_subtasks;
+    QString m_watching;
+    int m_subtaskGeneration = 0;
     QTimer m_poll;
 };

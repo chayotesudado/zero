@@ -3,22 +3,50 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// Names a new section in the list on screen; Enter creates it.
+// Names a new section in the list on screen, or renames a section or a
+// project; Enter does it.
 Popup {
     id: dialog
 
+    // "section" for a new one, "rename-section", or "rename-project".
+    property string mode: "section"
     property string projectName: ""
+    property string targetId: ""
+    property string oldName: ""
 
     function openNew(name) {
+        mode = "section"
         projectName = name
-        field.text = ""
+        show("")
+    }
+
+    function openRenameSection(section) {
+        if (!section) return
+        mode = "rename-section"
+        targetId = section.id
+        show(section.name)
+    }
+
+    function openRenameProject(project) {
+        if (!project) return
+        mode = "rename-project"
+        targetId = project.id
+        show(project.name)
+    }
+
+    function show(text) {
+        oldName = text
+        field.text = text
         open()
         field.forceActiveFocus()
+        field.selectAll()
     }
 
     function create() {
         if (field.text.trim() === "") return
-        backend.createSection(field.text)
+        if (mode === "rename-section") backend.renameSection(targetId, field.text)
+        else if (mode === "rename-project") backend.renameProject(targetId, field.text)
+        else backend.createSection(field.text)
         close()
     }
 
@@ -37,7 +65,9 @@ Popup {
 
         Label {
             Layout.fillWidth: true
-            text: qsTr("New section in %1").arg(dialog.projectName)
+            text: dialog.mode === "rename-section" ? qsTr("Rename the section “%1”").arg(dialog.oldName)
+                : dialog.mode === "rename-project" ? qsTr("Rename “%1”").arg(dialog.oldName)
+                : qsTr("New section in %1").arg(dialog.projectName)
             textFormat: Text.PlainText
             elide: Text.ElideRight
             font.pixelSize: 16
@@ -58,7 +88,7 @@ Popup {
             Item { Layout.fillWidth: true }
             Button { text: qsTr("Cancel"); flat: true; onClicked: dialog.close() }
             Button {
-                text: qsTr("Create")
+                text: dialog.mode === "section" ? qsTr("Create") : qsTr("Rename")
                 highlighted: true
                 enabled: field.text.trim() !== ""
                 Material.roundedScale: theme.radius

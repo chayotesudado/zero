@@ -4,7 +4,7 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 
 // A section's heading in a project's list. It can be selected like a task:
-// N then adds into it, and Delete deletes it.
+// N then adds into it, Enter renames it, and Delete deletes it.
 Item {
     id: row
 
@@ -13,6 +13,7 @@ Item {
     signal selectRequested()
     signal addRequested()
     signal deleteRequested()
+    signal renameRequested()
 
     implicitHeight: 46
 
@@ -28,7 +29,10 @@ Item {
     }
 
     HoverHandler { id: hover }
-    TapHandler { onTapped: row.selectRequested() }
+    TapHandler {
+        onTapped: row.selectRequested()
+        onDoubleTapped: row.renameRequested()
+    }
 
     RowLayout {
         anchors.left: parent.left
@@ -58,6 +62,7 @@ Item {
             visible: hover.hovered || row.selected
             spacing: 2
             HeadingAction { text: qsTr("Add task"); onClicked: row.addRequested() }
+            HeadingAction { text: qsTr("Rename"); onClicked: row.renameRequested() }
             HeadingAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
         }
     }

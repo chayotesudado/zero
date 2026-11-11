@@ -62,6 +62,11 @@ public:
     // Todoist deletes the project's tasks and sub-projects with it.
     void deleteProject(const QString &projectId, ObjectCallback done);
     void move(const QString &taskId, const QString &projectId, ObjectCallback done);
+    // Makes it a subtask of another task, and so into that task's project
+    // and section.
+    void moveUnder(const QString &taskId, const QString &parentId, ObjectCallback done);
+    // A task's direct subtasks.
+    void subtasks(const QString &parentId, ListCallback done);
     // Into a section, and so into the section's project.
     void moveToSection(const QString &taskId, const QString &sectionId, ObjectCallback done);
     // Every section, or a project's.
@@ -69,6 +74,8 @@ public:
     void createSection(const QString &name, const QString &projectId, ObjectCallback done);
     // Todoist deletes the section's tasks with it.
     void deleteSection(const QString &sectionId, ObjectCallback done);
+    // Fields as Todoist's update takes them, e.g. {"name": "Later"}.
+    void updateSection(const QString &sectionId, const QJsonObject &fields, ObjectCallback done);
     // Makes a project a sub-project of another, or top-level when parentId
     // is empty. REST can't, so this is a Sync API command.
     void moveProject(const QString &projectId, const QString &parentId, ObjectCallback done);
@@ -78,10 +85,12 @@ public:
     // Collect every page of a paginated list endpoint.
     void list(const QString &path, QUrlQuery query, ListCallback done);
 
-private:
-    // One Sync API command; its own failure (reported inside a 200) counts
-    // as an error like any other.
+    // One Sync API command, for what REST can't do (item_reorder,
+    // section_reorder, project_reorder); its own failure (reported inside a
+    // 200) counts as an error like any other.
     void command(const QString &type, const QJsonObject &args, ObjectCallback done);
+
+private:
     void send(const QByteArray &verb, const QString &path, const QUrlQuery &query, const QByteArray &body,
               ObjectCallback done);
 

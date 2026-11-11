@@ -158,6 +158,17 @@ void Todoist::move(const QString &taskId, const QString &projectId, ObjectCallba
     send("POST", "/tasks/" + QUrl::toPercentEncoding(taskId) + "/move", {}, body, std::move(done));
 }
 
+void Todoist::moveUnder(const QString &taskId, const QString &parentId, ObjectCallback done) {
+    const QByteArray body = QJsonDocument(QJsonObject{{"parent_id", parentId}}).toJson(QJsonDocument::Compact);
+    send("POST", "/tasks/" + QUrl::toPercentEncoding(taskId) + "/move", {}, body, std::move(done));
+}
+
+void Todoist::subtasks(const QString &parentId, ListCallback done) {
+    QUrlQuery query;
+    query.addQueryItem("parent_id", parentId);
+    list("/tasks", query, std::move(done));
+}
+
 void Todoist::update(const QString &taskId, const QJsonObject &fields, ObjectCallback done) {
     send("POST", "/tasks/" + QUrl::toPercentEncoding(taskId), {}, QJsonDocument(fields).toJson(QJsonDocument::Compact),
          std::move(done));
@@ -200,6 +211,11 @@ void Todoist::createSection(const QString &name, const QString &projectId, Objec
 
 void Todoist::deleteSection(const QString &sectionId, ObjectCallback done) {
     send("DELETE", "/sections/" + QUrl::toPercentEncoding(sectionId), {}, {}, std::move(done));
+}
+
+void Todoist::updateSection(const QString &sectionId, const QJsonObject &fields, ObjectCallback done) {
+    send("POST", "/sections/" + QUrl::toPercentEncoding(sectionId), {},
+         QJsonDocument(fields).toJson(QJsonDocument::Compact), std::move(done));
 }
 
 void Todoist::moveProject(const QString &projectId, const QString &parentId, ObjectCallback done) {
