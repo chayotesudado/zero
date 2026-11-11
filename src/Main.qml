@@ -180,13 +180,6 @@ ApplicationWindow {
         return row.kind === "section" ? row.id : (row.sectionId || "")
     }
 
-    function sectionName(id) {
-        var rows = backend.rows
-        for (var i = 0; i < rows.length; i++)
-            if (rows[i].kind === "section" && rows[i].id === id) return rows[i].name
-        return ""
-    }
-
     function moveTask(task) {
         if (!task) return
         movePicker.target = task
@@ -355,7 +348,7 @@ ApplicationWindow {
                         }
                     }
 
-                    SidebarItem { id: inboxItem; view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; count: backend.inboxCount; hotkey: "1" }
+                    SidebarItem { id: inboxItem; view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; hotkey: "1" }
                     SidebarItem { id: todayItem; view: "today"; label: qsTr("Today"); glyph: "today"; count: backend.todayCount; hotkey: "2" }
                     SidebarItem { view: "upcoming"; label: qsTr("Upcoming"); glyph: "upcoming"; hotkey: "3" }
 
@@ -464,13 +457,6 @@ ApplicationWindow {
                         elide: Text.ElideRight
                         Layout.maximumWidth: 480
                     }
-                    Label {
-                        Layout.alignment: Qt.AlignBaseline
-                        visible: backend.loaded
-                        text: qsTr("%n tasks", "", backend.tasks.length)
-                        font.pixelSize: 14
-                        color: theme.dimForeground
-                    }
                     Item { Layout.fillWidth: true }
                     BusyIndicator {
                         running: backend.busy
@@ -534,17 +520,30 @@ ApplicationWindow {
                     placeholderTextColor: theme.muted
                     selectionColor: theme.selection
                     selectedTextColor: theme.foreground
-                    // Says where a new task lands, since that depends on the list.
-                    readonly property string section: (taskList.currentIndex, backend.rows, win.sectionName(win.addSection()))
                     // Set by Shift+N: what's added goes under this task,
                     // until Esc or the box is left.
                     property var parentTask: null
-                    onActiveFocusChanged: if (!activeFocus) parentTask = null
-                    placeholderText: parentTask ? qsTr("Add a subtask to “%1”").arg(parentTask.content)
-                                   : backend.view === "today" ? qsTr("Add to Today (N)")
-                                   : backend.view === "upcoming" ? qsTr("Add a task (N)")
-                                   : section !== "" ? qsTr("Add to %1 / %2 (N)").arg(backend.viewName).arg(section)
-                                   : qsTr("Add to %1 (N)").arg(backend.viewName)
+                    // Where a task lands, as quick-add text the box starts
+                    // with: "today ", "#Project ", "#Project /Section ".
+                    // Typing after it files the task there; clearing it
+                    // sends the task to the Inbox. Put in when the box is
+                    // entered, and taken out when it's left untouched, so
+                    // the box at rest just says what it's for.
+                    property string prefill: ""
+                    function fill() {
+                        prefill = parentTask ? "" : backend.addPrefix(win.addSection())
+                        text = prefill
+                        cursorPosition = text.length
+                    }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            if (text === "") fill()
+                        } else {
+                            if (text === prefill) text = ""
+                            parentTask = null
+                        }
+                    }
+                    placeholderText: parentTask ? qsTr("Add a subtask to “%1”").arg(parentTask.content) : qsTr("Add a task (N)")
                     background: Rectangle {
                         radius: Math.min(6, theme.radius)
                         color: addField.activeFocus ? theme.tint(0.04) : "transparent"
@@ -552,10 +551,10 @@ ApplicationWindow {
                         border.color: addField.activeFocus ? theme.accent : theme.lighterBackground
                     }
                     onAccepted: {
-                        if (text.trim() === "") return
-                        if (parentTask) backend.add(text, "", parentTask.id)
-                        else backend.add(text, win.addSection())
-                        text = ""
+                        if (text.trim() === "" || text === prefill) return
+                        backend.add(text, parentTask ? parentTask.id : "")
+                        // Ready for the next one, in the same place.
+                        fill()
                     }
                 }
                 Label {
@@ -564,9 +563,9 @@ ApplicationWindow {
                     Layout.bottomMargin: 8
                     text: addField.activeFocus
                           ? (addField.parentTask ? qsTr("Goes under “%1”, wherever it is. Dates and p1–p4 work. Esc to stop.").arg(addField.parentTask.content)
-                             : backend.view === "upcoming"
+                             : addField.prefill === ""
                              ? qsTr("Quick add: “Pay rent friday 9am #Home p1 @errand”. Without a #project it goes to the Inbox.")
-                             : qsTr("Quick add: dates, #project, @label and p1–p4 work. A #project or date you type wins."))
+                             : qsTr("Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.").arg(addField.prefill.trim()))
                           : " "
                     font.pixelSize: 11
                     color: theme.muted
@@ -726,7 +725,9 @@ ApplicationWindow {
                     }
 
                     readonly property bool grouped: backend.view === "today" || backend.view === "upcoming"
-                    section.property: grouped ? "group" : ""
+                    // Upcoming is headed by day. Today isn't: it's all today,
+                    // and an overdue task says its date in red.
+                    section.property: backend.view === "upcoming" ? "group" : ""
                     section.delegate: Item {
                         required property string section
                         width: ListView.view.width

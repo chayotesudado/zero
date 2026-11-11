@@ -263,7 +263,7 @@ Popup {
                 spacing: 2
 
                 Label {
-                    text: detail.subtasks.length > 0 ? qsTr("Subtasks · %1").arg(detail.subtasks.length) : qsTr("Subtasks")
+                    text: qsTr("Subtasks")
                     font.pixelSize: 12
                     font.bold: true
                     color: theme.softForeground
@@ -353,7 +353,7 @@ Popup {
                     }
                     onAccepted: {
                         if (text.trim() === "") return
-                        backend.add(text, "", detail.task.id)
+                        backend.add(text, detail.task.id)
                         text = ""
                     }
                     Keys.onEscapePressed: detail.close()

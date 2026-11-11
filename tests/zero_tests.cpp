@@ -329,19 +329,25 @@ private slots:
         QVERIFY(reopened);
     }
 
-    void backendFilesAddsIntoTheListOnScreen() {
+    void backendFilesAddsByTheirPrefix() {
         QTemporaryDir dir;
         Credentials credentials(dir.path() + "/token");
         QCOMPARE(credentials.write("good"), QString());
-        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+        QJsonArray list = projects;
+        list << QJsonObject{{"id", "stuff"}, {"name", "My Stuff"}, {"child_order", 2}};
+        const QJsonArray sections{
+            QJsonObject{{"id", "s1"}, {"name", "Next week"}, {"project_id", "stuff"}, {"section_order", 1}},
+            QJsonObject{{"id", "s2"}, {"name", "Later"}, {"project_id", "inbox1"}, {"section_order", 1}},
+        };
+        FakeServer server([&](const FakeServer::Request &request) -> FakeServer::Response {
             if (request.path() == "/projects")
-                return {200, page(projects)};
+                return {200, page(list)};
+            if (request.path() == "/sections" && request.method == "GET")
+                return {200, page(sections)};
             if (request.path() == "/tasks/quick") {
                 QJsonObject made = task("new", "Milk");
                 if (request.body.contains("#Work"))
                     made.insert("project_id", "work");
-                if (request.body.contains("friday"))
-                    made.insert("due", QJsonObject{{"date", iso(3)}, {"string", "friday"}});
                 return {200, QJsonDocument(made).toJson()};
             }
             if (request.method == "GET")
@@ -352,60 +358,87 @@ private slots:
         Backend backend(credentials);
         QTRY_VERIFY(backend.loaded());
         auto posts = [&] {
-            QList<QByteArray> list;
+            QList<QByteArray> sent;
             for (const auto &r : server.requests)
                 if (r.method != "GET")
-                    list << r.path() + " " + r.body;
+                    sent << r.path() + " " + r.body;
             server.requests.clear();
-            return list;
+            return sent;
         };
         auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
+        auto quickText = [](const QByteArray &post) {
+            return QJsonDocument::fromJson(post.mid(post.indexOf('{'))).object().value("text").toString();
+        };
 
-        // A project view moves the new task into its project.
-        backend.showView("project:work");
+        // What the box starts with, list by list.
+        QCOMPARE(backend.addPrefix(), QString("today "));
+        backend.showView("upcoming");
         settle();
+        QCOMPARE(backend.addPrefix(), QString());
+        backend.showView("inbox");
+        settle();
+        QCOMPARE(backend.addPrefix(), QString());
+        QCOMPARE(backend.addPrefix("s2"), QString("#Inbox /Later "));
+        backend.showView("project:stuff");
+        settle();
+        QCOMPARE(backend.addPrefix(), QString("#My Stuff "));
+        QCOMPARE(backend.addPrefix("s1"), QString("#My Stuff /Next week "));
+        QCOMPARE(backend.addPrefix("elsewhere"), QString("#My Stuff "));
+
+        // With the prefix, Zero files it there itself, spaces and all, and
+        // quick add only sees the rest.
         posts();
         QSignalSpy added(&backend, &Backend::added);
-        backend.add("Milk");
+        backend.add("#My Stuff Milk");
         QTRY_COMPARE(added.size(), 1);
         settle();
         QList<QByteArray> sent = posts();
         QCOMPARE(sent.size(), 2);
+        QCOMPARE(quickText(sent.at(0)), QString("Milk"));
         QVERIFY(sent.at(1).startsWith("/tasks/new/move"));
-        QVERIFY(sent.at(1).contains("\"project_id\":\"work\""));
+        QVERIFY(sent.at(1).contains("\"project_id\":\"stuff\""));
 
-        // Unless the text names its own project.
-        backend.showView("project:inbox1");
+        // And into a section.
+        backend.add("#My Stuff /Next week Milk tomorrow");
         settle();
-        posts();
-        backend.add("Milk #Work");
-        settle();
-        QCOMPARE(posts().size(), 1);
+        sent = posts();
+        QCOMPARE(quickText(sent.at(0)), QString("Milk tomorrow"));
+        QVERIFY(sent.at(1).contains("\"section_id\":\"s1\""));
 
-        // Today dates an undated task today, but keeps a typed date.
-        backend.showView("today");
-        settle();
-        posts();
+        // Cleared, it's a plain quick add: the Inbox.
         backend.add("Milk");
         settle();
         sent = posts();
-        QCOMPARE(sent.size(), 2);
-        QVERIFY(sent.at(1).startsWith("/tasks/new {"));
-        QVERIFY(sent.at(1).contains("today"));
-        backend.add("Milk friday");
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(quickText(sent.at(0)), QString("Milk"));
+
+        // A #project typed after the prefix wins.
+        backend.add("#My Stuff Milk #Work");
         settle();
         QCOMPARE(posts().size(), 1);
 
         // A "#" that names no project ("PR #42") still files it here.
-        backend.showView("project:work");
-        settle();
-        posts();
-        backend.add("Review PR #42");
+        backend.add("#My Stuff Review PR #42");
         settle();
         sent = posts();
         QCOMPARE(sent.size(), 2);
-        QVERIFY(sent.at(1).startsWith("/tasks/new/move"));
-        QVERIFY(sent.at(1).contains("\"project_id\":\"work\""));
+        QVERIFY(sent.at(1).contains("\"project_id\":\"stuff\""));
+
+        // The prefix alone adds nothing.
+        backend.add("#My Stuff ");
+        QTest::qWait(100);
+        QVERIFY(posts().isEmpty());
+
+        // Today's "today" is Todoist's to read, so it stays in the text, and
+        // nothing more is sent.
+        backend.showView("today");
+        settle();
+        posts();
+        backend.add("today Milk");
+        settle();
+        sent = posts();
+        QCOMPARE(sent.size(), 1);
+        QCOMPARE(quickText(sent.at(0)), QString("today Milk"));
     }
 
     void backendAsksBeforeUndoingAnAdd() {
@@ -467,7 +500,7 @@ private slots:
         // Into a project: redo moves the new copy there too.
         backend.showView("project:work");
         settle();
-        backend.add("Milk");
+        backend.add("#Work Milk");
         settle();
         backend.undo();
         settle();
@@ -479,17 +512,17 @@ private slots:
         QVERIFY(sentSince("/tasks/new/move", "\"project_id\":\"work\""));
         QVERIFY(backend.canUndo());
 
-        // In Today: redo dates it today again.
+        // In Today: redo adds it with "today" again.
         backend.showView("today");
         settle();
-        backend.add("Milk");
+        backend.add("today Milk");
         settle();
         backend.undo();
         settle();
         server.requests.clear();
         backend.redo();
         settle();
-        QVERIFY(sentSince("/tasks/new", "\"due_string\":\"today\""));
+        QVERIFY(sentSince("/tasks/quick", "today Milk"));
     }
 
     void errorsKeepTheirStatus() {
@@ -714,7 +747,7 @@ private slots:
         // Quick add makes it in the Inbox, then it's moved into Work.
         backend.showView("project:work");
         settle();
-        backend.add("Milk");
+        backend.add("#Work Milk");
         settle();
         QVERIFY(backend.canUndo());
 
@@ -869,7 +902,7 @@ private slots:
 
         // A new task goes into the section it's added to.
         server.requests.clear();
-        backend.add("Milk", "s2");
+        backend.add(backend.addPrefix("s2") + "Milk");
         settle();
         bool filed = false;
         for (const auto &r : server.requests)
@@ -1311,7 +1344,7 @@ private slots:
 
         // A subtask goes under its parent, even from Today.
         server.requests.clear();
-        backend.add("Find a sitter", {}, "p");
+        backend.add("Find a sitter", "p");
         settle();
         bool under = false;
         for (const auto &r : server.requests)
@@ -1545,7 +1578,7 @@ private slots:
 
         // A subtask added while Today is on screen isn't dated today.
         server.requests.clear();
-        backend.add("Buy screws", {}, "p");
+        backend.add("Buy screws", "p");
         settle();
         for (const auto &r : server.requests)
             QVERIFY(!r.body.contains("due_string"));

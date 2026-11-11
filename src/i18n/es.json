@@ -8,7 +8,6 @@
   "Today · %1": "Hoy · %1",
   "Tomorrow · %1": "Mañana · %1",
   "Complete the selected task": "Completar la tarea seleccionada",
-  "Add a task": "Añadir una tarea",
   "Next task": "Tarea siguiente",
   "Previous task": "Tarea anterior",
   "Open the selected task in Todoist": "Abrir la tarea seleccionada en Todoist",
@@ -25,11 +24,6 @@
   "%1 — Zero": "%1 — Zero",
   "Projects": "Proyectos",
   "Sign out": "Cerrar sesión",
-  "%n tasks": {
-    "one": "%n tarea",
-    "many": "%n de tareas",
-    "other": "%n tareas"
-  },
   "? for shortcuts": "? para ver atajos",
   "Retry": "Reintentar",
   "Dismiss": "Descartar",
@@ -59,16 +53,12 @@
   "Couldn't undo. %1": "No se pudo deshacer. %1",
   "Couldn't undo “%1”, so it's off the undo list. %2": "No se pudo deshacer “%1”, así que se quitó de la lista para deshacer. %2",
   "Couldn't redo. %1": "No se pudo rehacer. %1",
-  "Add to Today (N)": "Añadir a Hoy (N)",
-  "Add to %1 (N)": "Añadir a %1 (N)",
-  "Quick add: dates, #project, @label and p1–p4 work. A #project or date you type wins.": "Añadido rápido: funcionan fechas, #proyecto, @etiqueta y p1–p4. Lo que escribas tiene prioridad.",
   "Added “%1”, but couldn't file it here. %2": "Se añadió “%1”, pero no se pudo archivar aquí. %2",
   "Couldn't move “%1”. %2": "No se pudo mover “%1”. %2",
   "Couldn't change the date of “%1”. %2": "No se pudo cambiar la fecha de “%1”. %2",
   "Move “%1” to": "Mover “%1” a",
   "Project": "Proyecto",
   "current": "actual",
-  "No project matches.": "Ningún proyecto coincide.",
   "Next week": "Próxima semana",
   "When is “%1” due?": "¿Cuándo vence “%1”?",
   "Like “fri 5pm” or “every monday”": "Como “fri 5pm” o “every monday”",
@@ -77,7 +67,6 @@
   "Move the selected task to a project": "Mover la tarea seleccionada a un proyecto",
   "Change the selected task's date": "Cambiar la fecha de la tarea seleccionada",
   "Make the selected task due today": "Hacer que la tarea seleccionada venza hoy",
-  "Add a task to this list": "Añadir una tarea a esta lista",
   "%n open tasks will be deleted with it.": {
     "one": "Se eliminará %n tarea abierta con él.",
     "many": "Se eliminarán %n de tareas abiertas con él.",
@@ -134,7 +123,6 @@
   },
   "Add a task to this list (into the selected section)": "Añadir una tarea a esta lista (en la sección seleccionada)",
   "Add task": "Añadir tarea",
-  "Add to %1 / %2 (N)": "Añadir a %1 / %2 (N)",
   "Added the section “%1”.": "Se añadió la sección “%1”.",
   "Delete the section “%1”?": "¿Eliminar la sección “%1”?",
   "Delete the selected task or section": "Eliminar la tarea o sección seleccionada",
@@ -163,7 +151,6 @@
   "Ctrl+%1": "Ctrl+%1",
   "Change (D)": "Cambiar (D)",
   "Move (M)": "Mover (M)",
-  "Subtasks · %1": "Subtareas · %1",
   "Subtasks": "Subtareas",
   "Add a subtask (quick add: dates and p1 work)": "Añadir una subtarea (añadido rápido: fechas y p1 funcionan)",
   "Open in Todoist": "Abrir en Todoist",
@@ -193,5 +180,6 @@
   "Moved “%1” to %2. Ctrl+Z to undo.": "Se movió “%1” a %2. Ctrl+Z para deshacer.",
   "+ Add section (S)": "+ Añadir sección (S)",
   "due today": "vence hoy",
-  "Any subtasks it has will be deleted with it.": "Se eliminarán con ella las subtareas que tenga."
+  "Any subtasks it has will be deleted with it.": "Se eliminarán con ella las subtareas que tenga.",
+  "Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.": "Escribe tras “%1” para añadirla ahí, o bórralo para la bandeja de entrada. Fechas, #proyecto, @etiqueta y p1–p4 funcionan."
 }

@@ -30,7 +30,7 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | Key | Action |
 | --- | --- |
 | Space | Complete the selected task |
-| N | Add a task to the list on screen, into the selected section if there is one (Todoist quick add: dates, `#Project`, `@label`, `p1`) |
+| N | Add a task (Todoist quick add: dates, `#Project`, `@label`, `p1`), starting from where you are |
 | Shift+N | Add a subtask to the selected task |
 | Enter | Open the selected task to edit it, or rename the selected section |
 | Ctrl+1 … Ctrl+4 | Set the selected task's priority (p1–p4) |
@@ -58,10 +58,13 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | ? | Show every shortcut |
 | Q | Quit |
 
-A new task lands in the list you're looking at: a project view files it
-in that project, and Today dates it today. A `#Project` or a date typed in
-the text wins. Upcoming and the bar widget add to the Inbox. Hovering a task
-(or selecting it) shows Open, Date, and Move buttons too.
+The add box starts with where you are, as quick-add text: `today ` in
+Today, `#Project ` in a project, and `#Project /Section ` with a section's
+heading or one of its tasks selected. Type after it and the task lands
+there; clear it and the task goes to the Inbox, or wherever a `#Project` or
+date you type sends it. Upcoming, the Inbox, and the bar widget start empty
+and add to the Inbox. Hovering a task (or selecting it) shows Open, Date,
+and Move buttons too.
 
 Enter (or a double-click, or Open on hover) opens a task: its name and
 description to edit, its priority, date, and project, and its subtasks,

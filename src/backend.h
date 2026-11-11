@@ -39,7 +39,6 @@ class Backend : public QObject {
     // Todoist's project colors: [{name: "berry_red", hex: "#b8255f"}, ...].
     Q_PROPERTY(QVariantList colors READ colors CONSTANT)
     Q_PROPERTY(int todayCount READ todayCount NOTIFY countsChanged)
-    Q_PROPERTY(int inboxCount READ inboxCount NOTIFY countsChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
 
@@ -59,7 +58,6 @@ public:
     QVariantList destinations() const;
     QVariantList colors() const;
     int todayCount() const { return m_todayCount; }
-    int inboxCount() const { return m_inboxCount; }
     bool canUndo() const { return !m_undo.isEmpty(); }
     bool canRedo() const { return !m_redo.isEmpty(); }
 
@@ -69,11 +67,16 @@ public:
     Q_INVOKABLE void signIn(const QString &token);
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void complete(const QString &taskId);
-    // Quick add, filed into the list on screen: a project view's project,
-    // and today's date in Today, unless the text names its own.
-    // sectionId files it into one of the list's sections; parentId makes it
-    // a subtask of that task instead, wherever the task is.
-    Q_INVOKABLE void add(const QString &text, const QString &sectionId = {}, const QString &parentId = {});
+    // What the add box starts with in the list on screen, so a task typed
+    // after it lands there: "today " in Today, "#Project " in a project,
+    // "#Project /Section " with one of its sections chosen, and nothing in
+    // Upcoming or the Inbox, which is where a task with no project goes.
+    Q_INVOKABLE QString addPrefix(const QString &sectionId = {}) const;
+    // Quick add. A text starting with the #project (/section) prefix of the
+    // list on screen is filed there; one without goes where Todoist's quick
+    // add reads it to, the Inbox if nowhere. parentId makes it a subtask of
+    // that task instead, wherever the task is.
+    Q_INVOKABLE void add(const QString &text, const QString &parentId = {});
     // Gone for good, with its subtasks; Todoist has no way back.
     Q_INVOKABLE void deleteTask(const QString &taskId);
     // How many of its subtasks are in the list on screen.
@@ -180,8 +183,6 @@ private:
         QString from = {}, to = {};
         // For a move or an add, the sections, if any.
         QString fromSection = {}, toSection = {};
-        // For an add made in Today, which dated it today after quick add.
-        bool datedToday = false;
         // For a move, the parent tasks, if any; for an add, the task it was
         // made under.
         QString fromParent = {}, toParent = {};
@@ -215,8 +216,8 @@ private:
     QStringList descendantsOf(const QString &projectId) const;
     const Task *findTask(const QString &taskId) const;
     static QString dueStringOf(const Task &task);
-    // Files a task quick add just made where an add step says: its section
-    // or project (to, toSection), and dated today if datedToday.
+    // Files a task quick add just made where an add step says: under its
+    // parent, or into its section or project (toParent, toSection, to).
     void fileAdded(const Task &task, const Step &step, std::function<void(const ApiError &)> done);
     void applyMove(const Step &step, bool forward, std::function<void(const ApiError &)> done);
     void applySchedule(const Step &step, bool forward, std::function<void(const ApiError &)> done);
@@ -265,7 +266,6 @@ private:
     QHash<QString, Project> m_projectsById;
     QList<Section> m_sections;
     int m_todayCount = 0;
-    int m_inboxCount = 0;
     int m_busy = 0;
     bool m_loaded = false;
     // Responses for a view the user has since left are dropped.

@@ -60,12 +60,6 @@ Item {
             font.bold: true
             color: row.selected ? theme.accent : theme.foreground
         }
-        Label {
-            visible: (row.section.count || 0) > 0
-            text: (row.section.count || 0).toLocaleString(Qt.locale(), 'f', 0)
-            font.pixelSize: 12
-            color: theme.dimForeground
-        }
         RowLayout {
             visible: hover.hovered || row.selected
             spacing: 2
