@@ -68,12 +68,15 @@ description to edit, its priority, date, and project, and its subtasks,
 which open the same way, with a box to add more. Changes are saved as you
 make them, and Esc closes it. Indenting, outdenting, and reordering work in
 a project or the Inbox, where Todoist keeps an order; Today and Upcoming are
-sorted by date. Tasks and section headings can also be dragged there: a
-task takes the level of the task it's dropped in front of (so dropping
-between subtasks makes it one), or the top of the section above. Projects
-drag among their siblings in the sidebar; Shift+M nests them.
+sorted by date. Tasks and section headings can also be dragged there (a
+grip shows on hover): a task takes the level of the task it's dropped in
+front of (so dropping between subtasks makes it one), or the top of the
+section above. From any list, a task dragged onto the sidebar moves to that
+project or the Inbox, or onto Today becomes due today. Projects drag among
+their siblings in the sidebar; Shift+M nests them.
 
-A project's sections show as headings in its list, empty ones included.
+A project's sections show as headings in its list, empty ones included,
+and new ones are made with S or "+ Add section" at the end of the list.
 Select a heading with J/K or a click: N then adds into that section, Enter
 renames it, Alt+J/K moves it, and Delete deletes it along with its tasks,
 as Todoist does. Deleting a task

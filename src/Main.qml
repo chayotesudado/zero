@@ -131,6 +131,32 @@ ApplicationWindow {
         return index >= count ? row.y + row.height : row.y
     }
 
+    // A dragged task over the sidebar lands in the list under the pointer:
+    // the Inbox or a project moves it there, Today makes it due today.
+    // Returns {view, projectId, name}, or null off the sidebar.
+    function sidebarTargetAt(scenePoint) {
+        var fixed = [[inboxItem, win.inboxId()], [todayItem, ""]]
+        for (var i = 0; i < fixed.length; i++) {
+            var item = fixed[i][0]
+            var p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
+            if (p.x >= 0 && p.y >= 0 && p.x < item.width && p.y < item.height)
+                return { view: item.view, projectId: fixed[i][1], name: item.label }
+        }
+        var q = projectList.mapFromItem(null, scenePoint.x, scenePoint.y)
+        if (q.x < 0 || q.y < 0 || q.x >= projectList.width || q.y >= projectList.height) return null
+        var index = projectList.indexAt(q.x, q.y + projectList.contentY)
+        if (index < 0) return null
+        var project = backend.projects[index]
+        return { view: "project:" + project.id, projectId: project.id, name: project.name }
+    }
+
+    function inboxId() {
+        var list = backend.destinations
+        for (var i = 0; i < list.length; i++)
+            if (list[i].inbox) return list[i].projectId
+        return ""
+    }
+
     function addSubtask() {
         var t = selectedTask()
         if (!t) return
@@ -320,8 +346,8 @@ ApplicationWindow {
                         }
                     }
 
-                    SidebarItem { view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; count: backend.inboxCount; hotkey: "1" }
-                    SidebarItem { view: "today"; label: qsTr("Today"); glyph: "today"; count: backend.todayCount; hotkey: "2" }
+                    SidebarItem { id: inboxItem; view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; count: backend.inboxCount; hotkey: "1" }
+                    SidebarItem { id: todayItem; view: "today"; label: qsTr("Today"); glyph: "today"; count: backend.todayCount; hotkey: "2" }
                     SidebarItem { view: "upcoming"; label: qsTr("Upcoming"); glyph: "upcoming"; hotkey: "3" }
 
                     RowLayout {
@@ -586,18 +612,42 @@ ApplicationWindow {
                     // A row being dragged (a task or a section's heading), and
                     // where it would land: in front of the row at dropAt.
                     // Only projects and the Inbox keep an order to drag in.
+                    // A task can also be dropped on the sidebar (dropTarget),
+                    // from any list, the dated ones included.
                     property var dragRow: null
                     property int dropAt: -1
+                    property var dropTarget: null
                     property point dragPoint: Qt.point(0, 0)
+                    property point dragScene: Qt.point(0, 0)
                     function dragMoved(scenePoint) {
+                        dragScene = scenePoint
                         dragPoint = mapFromItem(null, scenePoint.x, scenePoint.y)
-                        dropAt = win.dropIndexIn(taskList, backend.rows.length, dragPoint.y)
+                        var target = dragRow && dragRow.kind === "task" ? win.sidebarTargetAt(scenePoint) : null
+                        // Its own project isn't somewhere else to go.
+                        dropTarget = target && target.view !== "today" && target.projectId === dragRow.projectId ? null : target
+                        var inList = dragPoint.x >= 0 && dragPoint.x < width
+                        dropAt = !dropTarget && inList && win.sectionsHere
+                                 ? win.dropIndexIn(taskList, backend.rows.length, dragPoint.y) : -1
                     }
                     function dropDragged() {
-                        var row = dragRow, at = dropAt
+                        var row = dragRow, at = dropAt, target = dropTarget
                         dragRow = null
                         dropAt = -1
-                        if (!row || at < 0) return
+                        dropTarget = null
+                        if (!row) return
+                        if (target) {
+                            if (target.view === "today") {
+                                if (row.dayOffset !== 0 || !row.hasDue) {
+                                    backend.schedule(row.id, "today")
+                                    win.toastShow(qsTr("“%1” is due today. Ctrl+Z to undo.").arg(row.content))
+                                }
+                            } else if (target.projectId && target.projectId !== row.projectId) {
+                                backend.moveTask(row.id, target.projectId, "")
+                                win.toastShow(qsTr("Moved “%1” to %2. Ctrl+Z to undo.").arg(row.content).arg(target.name))
+                            }
+                            return
+                        }
+                        if (at < 0) return
                         if (row.kind === "section") backend.dropSection(row.id, at)
                         else backend.dropTask(row.id, at)
                     }
@@ -623,13 +673,32 @@ ApplicationWindow {
                     Timer {
                         interval: 16
                         repeat: true
-                        running: taskList.dragRow !== null && (taskList.dragPoint.y < 36 || taskList.dragPoint.y > taskList.height - 36)
+                        running: taskList.dropAt >= 0 && (taskList.dragPoint.y < 36 || taskList.dragPoint.y > taskList.height - 36)
                         onTriggered: {
                             var top = taskList.originY
                             var bottom = taskList.originY + Math.max(0, taskList.contentHeight - taskList.height)
                             var step = taskList.dragPoint.y < 36 ? -8 : 8
                             taskList.contentY = Math.max(top, Math.min(bottom, taskList.contentY + step))
                             taskList.dropAt = win.dropIndexIn(taskList, backend.rows.length, taskList.dragPoint.y)
+                        }
+                    }
+
+                    // Sections are made from here too, not only with S.
+                    footer: Item {
+                        width: ListView.view.width
+                        height: win.sectionsHere && backend.loaded ? 48 : 0
+                        visible: height > 0
+                        Label {
+                            id: addSectionLabel
+                            anchors.left: parent.left
+                            anchors.leftMargin: 16
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("+ Add section (S)")
+                            font.pixelSize: 13
+                            padding: 4
+                            color: addSectionHover.hovered ? theme.accent : theme.dimForeground
+                            HoverHandler { id: addSectionHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler { onTapped: sectionDialog.openNew(backend.viewName) }
                         }
                     }
 
@@ -640,33 +709,6 @@ ApplicationWindow {
                         x: 16 + taskList.dropDepth * 26
                         width: taskList.width - x - 16
                         z: 5
-                    }
-
-                    // What's being dragged, under the pointer.
-                    Rectangle {
-                        visible: taskList.dragRow !== null
-                        z: 6
-                        x: taskList.dragPoint.x + 14
-                        y: taskList.dragPoint.y + taskList.contentY - height / 2
-                        width: Math.min(ghostLabel.implicitWidth + 24, 320)
-                        height: ghostLabel.implicitHeight + 12
-                        radius: Math.min(6, theme.radius)
-                        color: theme.lighterBackground
-                        border.color: theme.accent
-                        opacity: 0.95
-                        Label {
-                            id: ghostLabel
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.left: parent.left
-                            anchors.leftMargin: 12
-                            width: parent.width - 24
-                            elide: Text.ElideRight
-                            textFormat: Text.PlainText
-                            text: !taskList.dragRow ? "" : taskList.dragRow.kind === "section" ? taskList.dragRow.name : taskList.dragRow.content
-                            font.pixelSize: 13
-                            font.bold: !!taskList.dragRow && taskList.dragRow.kind === "section"
-                            color: theme.foreground
-                        }
                     }
 
                     readonly property bool grouped: backend.view === "today" || backend.view === "upcoming"
@@ -712,7 +754,7 @@ ApplicationWindow {
                         // Dragging picks the row up; it lands where the line shows.
                         DragHandler {
                             target: null
-                            enabled: win.sectionsHere
+                            enabled: win.sectionsHere || !entry.isSection
                             cursorShape: Qt.ClosedHandCursor
                             onActiveChanged: {
                                 if (active) {
@@ -738,6 +780,7 @@ ApplicationWindow {
                             TaskRow {
                                 task: entry.modelData
                                 selected: entry.current
+                                draggable: true
                                 showProject: taskList.grouped
                                 onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onCompleteRequested: backend.complete(entry.modelData.id)
@@ -752,6 +795,7 @@ ApplicationWindow {
                             SectionRow {
                                 section: entry.modelData
                                 selected: entry.current
+                                draggable: true
                                 onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onAddRequested: { taskList.select(entry.index); addField.forceActiveFocus() }
                                 onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
@@ -812,6 +856,37 @@ ApplicationWindow {
                     toast.message = qsTr("Added “%1”. Ctrl+Z to undo.").arg(content)
                     toastTimer.restart()
                 }
+            }
+        }
+
+        // What's being dragged, under the pointer, over the list or the
+        // sidebar, saying where it goes when that's another list.
+        Rectangle {
+            visible: taskList.dragRow !== null
+            z: 50
+            x: taskList.dragScene.x + 14
+            y: taskList.dragScene.y - height / 2
+            width: Math.min(ghostLabel.implicitWidth + 24, 340)
+            height: ghostLabel.implicitHeight + 12
+            radius: Math.min(6, theme.radius)
+            color: theme.lighterBackground
+            border.color: theme.accent
+            opacity: 0.95
+            Label {
+                id: ghostLabel
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 12
+                width: parent.width - 24
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                readonly property var row: taskList.dragRow
+                readonly property var target: taskList.dropTarget
+                text: !row ? "" : (row.kind === "section" ? row.name : row.content)
+                      + (target ? (target.view === "today" ? "  →  " + qsTr("due today") : "  →  " + target.name) : "")
+                font.pixelSize: 13
+                font.bold: !!row && row.kind === "section"
+                color: theme.foreground
             }
         }
 
@@ -964,6 +1039,8 @@ ApplicationWindow {
         // Set for projects, which get a menu; the fixed lists don't.
         property var project: null
         readonly property bool current: backend.view === view
+        // A dragged task would land here.
+        readonly property bool dropHere: taskList.dropTarget !== null && taskList.dropTarget.view === view
 
         function openMenu() {
             projectMenu.project = item.project
@@ -978,7 +1055,10 @@ ApplicationWindow {
             anchors.leftMargin: 8
             anchors.rightMargin: 8
             radius: Math.min(6, theme.radius)
-            color: item.current ? theme.tint(0.08) : itemHover.hovered ? theme.tint(0.04) : "transparent"
+            color: item.dropHere ? Qt.alpha(theme.accent, 0.18) : item.current ? theme.tint(0.08)
+                 : itemHover.hovered ? theme.tint(0.04) : "transparent"
+            border.width: item.dropHere ? 1 : 0
+            border.color: theme.accent
         }
         Rectangle {
             visible: item.current
