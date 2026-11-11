@@ -181,5 +181,7 @@
   "+ Add section (S)": "+ Añadir sección (S)",
   "due today": "vence hoy",
   "Any subtasks it has will be deleted with it.": "Se eliminarán con ella las subtareas que tenga.",
-  "Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.": "Escribe tras “%1” para añadirla ahí, o bórralo para la bandeja de entrada. Fechas, #proyecto, @etiqueta y p1–p4 funcionan."
+  "Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.": "Escribe tras “%1” para añadirla ahí, o bórralo para la bandeja de entrada. Fechas, #proyecto, @etiqueta y p1–p4 funcionan.",
+  "Lists (Ctrl+B)": "Listas (Ctrl+B)",
+  "Show or hide the lists, when the window is narrow": "Mostrar u ocultar las listas, con la ventana estrecha"
 }

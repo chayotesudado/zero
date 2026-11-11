@@ -29,6 +29,7 @@ Rectangle {
         ["2", qsTr("Today")],
         ["3", qsTr("Upcoming")],
         ["[  ]", qsTr("Previous or next list")],
+        ["Ctrl+B", qsTr("Show or hide the lists, when the window is narrow")],
         ["P", qsTr("New project")],
         ["C", qsTr("Change the project's color")],
         ["Shift+M", qsTr("Move the project under another")],

@@ -9,7 +9,7 @@ ApplicationWindow {
     id: win
     width: 1000
     height: 700
-    minimumWidth: 640
+    minimumWidth: 360
     minimumHeight: 460
     visible: true
     title: backend.signedIn && backend.viewName ? qsTr("%1 — Zero").arg(backend.viewName) : "Zero"
@@ -22,6 +22,11 @@ ApplicationWindow {
     Material.roundedScale: theme.radius
 
     property bool helpVisible: false
+    // Narrow, the sidebar steps aside: ☰ (or Ctrl+B) slides it back over
+    // the list, and picking a list, Esc, or a tap beside it puts it away.
+    readonly property bool compact: width < 720
+    property bool sidebarOpen: false
+    onCompactChanged: sidebarOpen = false
     // Single-key shortcuts stand down while typing into a field.
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
     // Visible, not opened: a popup counts from the moment it starts to open,
@@ -230,8 +235,15 @@ ApplicationWindow {
     }
 
     Shortcut { sequence: "?"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: win.helpVisible = !win.helpVisible }
-    Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut; enabled: !win.pickerOpen && (win.helpVisible || addField.activeFocus)
-        onActivated: { if (win.helpVisible) win.helpVisible = false; else { addField.text = ""; addField.parentTask = null; taskList.forceActiveFocus() } } }
+    Shortcut { sequence: "Escape"; context: Qt.ApplicationShortcut
+        enabled: !win.pickerOpen && (win.helpVisible || addField.activeFocus || (win.compact && win.sidebarOpen))
+        onActivated: {
+            if (win.helpVisible) win.helpVisible = false
+            else if (addField.activeFocus) { addField.text = ""; addField.parentTask = null; taskList.forceActiveFocus() }
+            else win.sidebarOpen = false
+        } }
+    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: win.compact && backend.signedIn && !win.pickerOpen
+        onActivated: win.sidebarOpen = !win.sidebarOpen }
     Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: Qt.quit() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.completeSelected() }
     Shortcut { sequences: ["N", "A"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: addField.forceActiveFocus() }
@@ -295,6 +307,11 @@ ApplicationWindow {
 
     Component.onCompleted: if (backend.signedIn) taskList.forceActiveFocus(); else signIn.focusField()
 
+    Connections {
+        target: backend
+        function onViewChanged() { win.sidebarOpen = false }
+    }
+
     // Coming back to the window picks up changes made elsewhere.
     onActiveChanged: if (active && backend.signedIn) backend.refresh()
 
@@ -314,15 +331,20 @@ ApplicationWindow {
             onVisibleChanged: if (visible) focusField(); else taskList.forceActiveFocus()
         }
 
-        RowLayout {
+        Item {
             anchors.fill: parent
             visible: backend.signedIn
-            spacing: 0
 
             // ------------------------------------------------ sidebar
             Rectangle {
-                Layout.fillHeight: true
-                Layout.preferredWidth: 230
+                id: sidebar
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.leftMargin: !win.compact || win.sidebarOpen ? 0 : -width - 1
+                Behavior on anchors.leftMargin { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                width: 230
+                z: 3
                 color: theme.darkBackground
 
                 ColumnLayout {
@@ -433,22 +455,54 @@ ApplicationWindow {
                 }
             }
 
-            Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: theme.lighterBackground }
+            Rectangle {
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.left: sidebar.right
+                width: 1
+                z: 3
+                color: theme.lighterBackground
+            }
+
+            // Behind the slid-out sidebar: a tap here puts it away.
+            Rectangle {
+                anchors.fill: parent
+                z: 2
+                visible: win.compact && win.sidebarOpen
+                color: Qt.rgba(0, 0, 0, theme.light ? 0.25 : 0.5)
+                TapHandler { onTapped: win.sidebarOpen = false }
+            }
 
             // ------------------------------------------------ list
             ColumnLayout {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.right: parent.right
+                anchors.left: parent.left
+                anchors.leftMargin: win.compact ? 0 : sidebar.width + 1
                 spacing: 0
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 32
-                    Layout.rightMargin: 24
+                    Layout.leftMargin: win.compact ? 16 : 32
+                    Layout.rightMargin: win.compact ? 16 : 24
                     Layout.topMargin: 22
                     spacing: 12
 
                     Label {
+                        visible: win.compact
+                        text: "☰"
+                        font.pixelSize: 20
+                        padding: 2
+                        color: menuHover.hovered ? theme.accent : theme.softForeground
+                        HoverHandler { id: menuHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler { onTapped: win.sidebarOpen = !win.sidebarOpen }
+                        ToolTip.visible: menuHover.hovered && !win.sidebarOpen
+                        ToolTip.text: qsTr("Lists (Ctrl+B)")
+                        ToolTip.delay: 400
+                    }
+                    Label {
+                        Layout.fillWidth: win.compact
                         text: backend.viewName
                         textFormat: Text.PlainText
                         font.pixelSize: 20
@@ -465,6 +519,7 @@ ApplicationWindow {
                         implicitHeight: 28
                     }
                     Label {
+                        visible: !win.compact
                         text: qsTr("? for shortcuts")
                         font.pixelSize: 12
                         color: theme.muted
@@ -530,6 +585,13 @@ ApplicationWindow {
                     // entered, and taken out when it's left untouched, so
                     // the box at rest just says what it's for.
                     property string prefill: ""
+                    // Into the box, starting from the selected row's place,
+                    // even if it holds another place's untouched prefill.
+                    function start() {
+                        if (text === prefill) text = ""
+                        if (activeFocus) fill()
+                        else forceActiveFocus()
+                    }
                     function fill() {
                         prefill = parentTask ? "" : backend.addPrefix(win.addSection())
                         text = prefill
@@ -633,6 +695,9 @@ ApplicationWindow {
                     property point dragScene: Qt.point(0, 0)
                     function dragMoved(scenePoint) {
                         dragScene = scenePoint
+                        // Narrow, the sidebar hides; nearing the left edge
+                        // brings it out to drop on.
+                        if (win.compact && !win.sidebarOpen && scenePoint.x < 28) win.sidebarOpen = true
                         dragPoint = mapFromItem(null, scenePoint.x, scenePoint.y)
                         var target = dragRow && dragRow.kind === "task" ? win.sidebarTargetAt(scenePoint, dragInbox) : null
                         // Its own project isn't somewhere else to go.
@@ -647,6 +712,7 @@ ApplicationWindow {
                         dragRows = []
                         dropAt = -1
                         dropTarget = null
+                        if (win.compact) win.sidebarOpen = false
                         if (!row) return
                         if (target) {
                             if (target.view === "today") {
@@ -800,6 +866,7 @@ ApplicationWindow {
                                 draggable: true
                                 showProject: taskList.grouped
                                 groupedByDay: taskList.grouped
+                                narrow: taskList.width < 560
                                 onSelectRequested: { taskList.select(entry.index); win.focusList() }
                                 onCompleteRequested: backend.complete(entry.modelData.id)
                                 onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
@@ -815,7 +882,7 @@ ApplicationWindow {
                                 selected: entry.current
                                 draggable: true
                                 onSelectRequested: { taskList.select(entry.index); win.focusList() }
-                                onAddRequested: { taskList.select(entry.index); addField.forceActiveFocus() }
+                                onAddRequested: { taskList.select(entry.index); addField.start() }
                                 onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
                                 onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
                             }
