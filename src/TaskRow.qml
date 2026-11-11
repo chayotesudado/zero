@@ -15,6 +15,8 @@ Item {
     property bool showProject: true
     // Shows the grip on hover: the list lets this row be dragged.
     property bool draggable: false
+    // Too narrow for every button: Open stays, and the details have the rest.
+    property bool narrow: false
     signal completeRequested()
     signal selectRequested()
     signal scheduleRequested()
@@ -53,9 +55,24 @@ Item {
         x: content.anchors.leftMargin - 11
         anchors.verticalCenter: parent.verticalCenter
     }
+    // Selects the row, except on its buttons and circle, which do their own
+    // thing: hearing their tap too would take the keyboard back to the
+    // list from whatever they open.
     TapHandler {
-        onTapped: row.selectRequested()
-        onDoubleTapped: row.openRequested()
+        onTapped: function(point) {
+            if (!row.onControl(point.position)) row.selectRequested()
+        }
+        onDoubleTapped: function(point) {
+            if (!row.onControl(point.position)) row.openRequested()
+        }
+    }
+    function onControl(position) {
+        for (const control of [actions, circle]) {
+            if (!control.visible) continue
+            const p = control.mapFromItem(row, position.x, position.y)
+            if (control.contains(p)) return true
+        }
+        return false
     }
 
     Timer {
@@ -157,13 +174,14 @@ Item {
 
         // Open, date, move, and delete, shown on hover and on the selected task.
         RowLayout {
+            id: actions
             Layout.alignment: Qt.AlignVCenter
             visible: hover.hovered || row.selected
             spacing: 2
             RowAction { text: qsTr("Open"); onClicked: row.openRequested() }
-            RowAction { text: qsTr("Date"); onClicked: row.scheduleRequested() }
-            RowAction { text: qsTr("Move"); onClicked: row.moveRequested() }
-            RowAction { text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
+            RowAction { visible: !row.narrow; text: qsTr("Date"); onClicked: row.scheduleRequested() }
+            RowAction { visible: !row.narrow; text: qsTr("Move"); onClicked: row.moveRequested() }
+            RowAction { visible: !row.narrow; text: qsTr("Delete"); danger: true; onClicked: row.deleteRequested() }
         }
 
         // The project, on the right, when the list mixes projects.

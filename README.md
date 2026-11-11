@@ -52,6 +52,7 @@ Upgrading from Ticked, Zero's old name: the first run moves
 | Alt+Shift+J / Alt+Shift+K | Move the project on screen down / up in the sidebar |
 | F2 | Rename the project on screen |
 | Ctrl+Delete | Delete the project on screen (asks first) |
+| Ctrl+B | Show or hide the sidebar, when the window is narrow |
 | R | Refresh |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / redo a completion, add, move, date change, edit, rename, indent, reorder or drag, or project move |
 | Esc | Leave the add box |
@@ -91,6 +92,9 @@ renamed, recolored, moved up, down, or under another project, or deleted
 from the ⋯ menu that appears on hover (or right-click). Deleting asks first
 and says how many tasks and sub-projects go with it, since Todoist deletes
 those too and it can't be undone.
+
+In a narrow window the sidebar steps aside: ☰ or Ctrl+B brings it back over
+the list, and dragging a task to the left edge brings it out to drop on.
 
 Everything is saved to Todoist as you go, so there's never unsaved work.
 

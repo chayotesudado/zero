@@ -37,9 +37,20 @@ Item {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 15
     }
+    // Selects the heading, except on its buttons: hearing their tap too
+    // would take the keyboard back to the list, out of the add box that
+    // Add task just opened.
     TapHandler {
-        onTapped: row.selectRequested()
-        onDoubleTapped: row.renameRequested()
+        onTapped: function(point) {
+            if (!row.onButtons(point.position)) row.selectRequested()
+        }
+        onDoubleTapped: function(point) {
+            if (!row.onButtons(point.position)) row.renameRequested()
+        }
+    }
+    function onButtons(position) {
+        if (!buttons.visible) return false
+        return buttons.contains(buttons.mapFromItem(row, position.x, position.y))
     }
 
     RowLayout {
@@ -61,6 +72,7 @@ Item {
             color: row.selected ? theme.accent : theme.foreground
         }
         RowLayout {
+            id: buttons
             visible: hover.hovered || row.selected
             spacing: 2
             HeadingAction { text: qsTr("Add task"); onClicked: row.addRequested() }
