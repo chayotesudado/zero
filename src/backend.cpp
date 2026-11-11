@@ -312,17 +312,6 @@ void Backend::loadCounts() {
             emit countsChanged();
         }
     });
-    const QString inbox = inboxId();
-    if (inbox.isEmpty())
-        return;
-    begin();
-    m_client.tasksInProject(inbox, [this](const QJsonArray &results, const ApiError &error) {
-        end();
-        if (error.isEmpty() && int(results.size()) != m_inboxCount) {
-            m_inboxCount = int(results.size());
-            emit countsChanged();
-        }
-    });
 }
 
 void Backend::applyTasks(const QList<Task> &tasks) {
@@ -377,7 +366,7 @@ void Backend::signOut() {
     m_subtasks.clear();
     m_watching.clear();
     ++m_subtaskGeneration;
-    m_todayCount = m_inboxCount = 0;
+    m_todayCount = 0;
     m_loaded = false;
     fail({});
     emit signedInChanged();
@@ -500,44 +489,74 @@ void Backend::complete(const QString &taskId) {
     });
 }
 
-void Backend::add(const QString &text, const QString &sectionId, const QString &parentId) {
-    const QString trimmed = text.trimmed();
+QString Backend::addPrefix(const QString &sectionId) const {
+    if (m_view == "today")
+        return QStringLiteral("today ");
+    const QString project = viewProjectId();
+    if (project.isEmpty())
+        return {};
+    const Project shown = m_projectsById.value(project);
+    for (const auto &section : sectionsOf(project))
+        if (section.id == sectionId)
+            return "#" + shown.name + " /" + section.name + " ";
+    // The Inbox needs no #: a task with no project lands there anyway.
+    return shown.inbox ? QString() : "#" + shown.name + " ";
+}
+
+void Backend::add(const QString &text, const QString &parentId) {
+    QString rest = text;
+    while (rest.startsWith(' '))
+        rest.remove(0, 1);
+    // The add box starts with addPrefix: a #project (and /section) prefix
+    // for the list on screen is Zero's to file the task by, so names with
+    // spaces work, and comes off the text. Anything else ("today", another
+    // #project, a date) is Todoist's quick add to read; with no #project it
+    // lands in the Inbox.
+    QString target, section;
+    const QString onScreen = viewProjectId();
+    if (!onScreen.isEmpty()) {
+        const QString name = "#" + m_projectsById.value(onScreen).name + " ";
+        int longest = 0;
+        if (rest.startsWith(name)) {
+            target = onScreen;
+            longest = int(name.size());
+        }
+        for (const auto &candidate : sectionsOf(onScreen)) {
+            const QString prefix = name + "/" + candidate.name + " ";
+            if (prefix.size() > longest && rest.startsWith(prefix)) {
+                target = onScreen;
+                section = candidate.id;
+                longest = int(prefix.size());
+            }
+        }
+        rest = rest.mid(longest);
+    }
+    const QString trimmed = rest.trimmed();
     if (trimmed.isEmpty())
         return;
-    // Todoist's quick add can't be told a project or section, so the task is
-    // moved there after it's made. A #project or a date in the text wins.
-    const QString target = m_view.startsWith("project:") ? m_view.mid(8) : QString();
-    const QString onScreen = viewProjectId();
     const QString inbox = inboxId();
-    QString section;
-    for (const auto &candidate : sectionsOf(onScreen))
-        if (candidate.id == sectionId)
-            section = candidate.id;
-    const bool wantsToday = m_view == "today";
     const QString parent = !parentId.isEmpty() && findTask(parentId) ? parentId : QString();
     begin();
-    m_client.quickAdd(trimmed, [this, trimmed, target, onScreen, inbox, section, wantsToday,
-                                parent](const QJsonObject &result, const ApiError &error) {
+    m_client.quickAdd(trimmed, [this, trimmed, target, inbox, section, parent](const QJsonObject &result,
+                                                                               const ApiError &error) {
         if (!error.isEmpty()) {
             end();
             fail(tr("Couldn't add “%1”. %2").arg(trimmed, error.message));
             return;
         }
         const Task task = Task::fromJson(result);
-        // Quick add only leaves the Inbox when the text named a real project,
-        // which then wins. A "#" that matched nothing ("PR #42") doesn't count.
-        const bool namedProject = task.projectId != inbox && task.projectId != onScreen;
-        Step step{Step::Added, task.id, trimmed, task, {}, namedProject ? QString() : target, {},
-                  namedProject ? QString() : section};
-        step.datedToday = wantsToday && !task.hasDue();
+        // A #project typed after the prefix wins, when quick add found it.
+        // A "#" that matched nothing ("PR #42") doesn't count.
+        const bool namedProject = task.projectId != inbox && task.projectId != target;
+        const bool fileHere = !target.isEmpty() && !namedProject;
+        Step step{Step::Added, task.id, trimmed, task, {}, fileHere ? target : QString(), {},
+                  fileHere ? section : QString()};
         // A subtask goes under its parent, wherever that is; that wins
         // over a #project too.
         if (!parent.isEmpty()) {
             step.to.clear();
             step.toSection.clear();
             step.toParent = parent;
-            // Nor dated today for being added while Today is on screen.
-            step.datedToday = false;
         }
         m_redo.clear();
         // Kept with the project and section it's filed into, so deleting
@@ -554,22 +573,15 @@ void Backend::add(const QString &text, const QString &sectionId, const QString &
 }
 
 void Backend::fileAdded(const Task &task, const Step &step, std::function<void(const ApiError &)> done) {
-    auto dateIt = [this, task, step, done](const ApiError &moveError) {
-        if (!moveError.isEmpty() || !step.datedToday || task.hasDue()) {
-            done(moveError);
-            return;
-        }
-        m_client.update(task.id, QJsonObject{{"due_string", "today"}},
-                        [done](const QJsonObject &, const ApiError &e) { done(e); });
-    };
+    auto moved = [done](const QJsonObject &, const ApiError &e) { done(e); };
     if (!step.toParent.isEmpty())
-        m_client.moveUnder(task.id, step.toParent, [dateIt](const QJsonObject &, const ApiError &e) { dateIt(e); });
+        m_client.moveUnder(task.id, step.toParent, moved);
     else if (!step.toSection.isEmpty())
-        m_client.moveToSection(task.id, step.toSection, [dateIt](const QJsonObject &, const ApiError &e) { dateIt(e); });
+        m_client.moveToSection(task.id, step.toSection, moved);
     else if (!step.to.isEmpty() && task.projectId != step.to)
-        m_client.move(task.id, step.to, [dateIt](const QJsonObject &, const ApiError &e) { dateIt(e); });
+        m_client.move(task.id, step.to, moved);
     else
-        dateIt({});
+        done({});
 }
 
 QVariantList Backend::colors() const {
