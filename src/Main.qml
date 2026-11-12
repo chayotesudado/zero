@@ -353,18 +353,19 @@ ApplicationWindow {
                     anchors.bottomMargin: 12
                     spacing: 2
 
-                    // The ZERO wordmark, pixel art 39 by 10, at exactly twice
-                    // that (78 by 20), unsmoothed, so every pixel stays sharp.
-                    // PNGs drawn at each scale, not the SVG, so it needs no
-                    // Qt SVG; Qt picks the @2x or @4x one on a HiDPI screen.
+                    // The ZERO wordmark, pixel art 39 by 10, at exactly three
+                    // times that (117 by 30), unsmoothed, so every pixel stays
+                    // sharp, lined up with the lists' icons below. PNGs at each
+                    // scale, not the SVG, so it needs no Qt SVG; Qt picks the
+                    // @2x or @4x one on a HiDPI screen.
                     Image {
                         Layout.leftMargin: 20
                         Layout.topMargin: 2
-                        Layout.bottomMargin: 16
+                        Layout.bottomMargin: 14
                         source: "qrc:/zero-wordmark.png"
                         fillMode: Image.PreserveAspectFit
-                        Layout.preferredWidth: 78
-                        Layout.preferredHeight: 20
+                        Layout.preferredWidth: 117
+                        Layout.preferredHeight: 30
                         smooth: false
                         mipmap: false
                         Accessible.role: Accessible.StaticText
