@@ -21,6 +21,12 @@ package() {
   cd "$startdir/.."
   install -Dm755 build/zero "$pkgdir/usr/bin/zero"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  # The pixel-art icon: drawn PNGs at each size, which stay sharp where a
+  # scaled SVG would blur, the SVG for any other size, and a one-color Z.
+  for size in 16 32 48 64 128 256 512; do
+    install -Dm644 "$startdir/icons/zero-$size.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/zero.png"
+  done
   install -Dm644 "$startdir/zero.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/zero.svg"
+  install -Dm644 "$startdir/zero-symbolic.svg" "$pkgdir/usr/share/icons/hicolor/symbolic/apps/zero-symbolic.svg"
   install -Dm644 "$startdir/zero.desktop" "$pkgdir/usr/share/applications/zero.desktop"
 }

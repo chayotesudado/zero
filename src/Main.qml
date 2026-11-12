@@ -353,21 +353,22 @@ ApplicationWindow {
                     anchors.bottomMargin: 12
                     spacing: 2
 
-                    RowLayout {
+                    // The ZERO wordmark, pixel art 39 by 10, at exactly twice
+                    // that (78 by 20), unsmoothed, so every pixel stays sharp.
+                    // PNGs drawn at each scale, not the SVG, so it needs no
+                    // Qt SVG; Qt picks the @2x or @4x one on a HiDPI screen.
+                    Image {
                         Layout.leftMargin: 20
-                        Layout.bottomMargin: 14
-                        spacing: 10
-                        ZeroMark {
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            color: theme.accent
-                        }
-                        Label {
-                            text: "Zero"
-                            font.pixelSize: 20
-                            font.bold: true
-                            color: theme.foreground
-                        }
+                        Layout.topMargin: 2
+                        Layout.bottomMargin: 16
+                        source: "qrc:/zero-wordmark.png"
+                        fillMode: Image.PreserveAspectFit
+                        Layout.preferredWidth: 78
+                        Layout.preferredHeight: 20
+                        smooth: false
+                        mipmap: false
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: "Zero"
                     }
 
                     SidebarItem { id: inboxItem; view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; hotkey: "1" }
