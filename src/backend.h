@@ -150,7 +150,9 @@ public:
 
     // The filter queries behind the Today and Upcoming views.
     static QString todayQuery() { return QStringLiteral("today | overdue"); }
-    static QString upcomingQuery() { return QStringLiteral("overdue | 7 days"); }
+    // Every task with a date, overdue ones included, as Todoist's own
+    // Upcoming has no end; a recurring task shows its next date only.
+    static QString upcomingQuery() { return QStringLiteral("!no date"); }
 
 signals:
     void signedInChanged();
