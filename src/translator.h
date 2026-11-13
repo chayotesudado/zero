@@ -20,6 +20,8 @@ class Translator : public QTranslator {
     // The locale dates and numbers are formatted in, for QML: bindings that
     // use it update when the language changes, where Qt.locale() wouldn't.
     Q_PROPERTY(QLocale locale READ locale NOTIFY changed)
+    // Written right to left (Arabic, Hebrew, Persian), so the window mirrors.
+    Q_PROPERTY(bool rightToLeft READ rightToLeft NOTIFY changed)
 
 public:
     explicit Translator(const QString &languageFile = {}, const QString &catalogDirectory = ":/i18n",
@@ -27,6 +29,7 @@ public:
 
     QString language() const { return m_language; }
     QLocale locale() const { return QLocale(); }
+    bool rightToLeft() const { return QLocale().textDirection() == Qt::RightToLeft; }
     bool isEmpty() const override { return m_strings.isEmpty(); }
     QString translate(const char *context, const char *sourceText, const char *disambiguation = nullptr,
                       int n = -1) const override;

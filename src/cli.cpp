@@ -13,7 +13,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QTextStream>
-#include <cstdio>
+#include <cstdio> // IWYU pragma: keep (stdin, stdout, stderr)
 
 #include "backend.h"
 #include "credentials.h"

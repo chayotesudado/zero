@@ -26,18 +26,22 @@ class Backend : public QObject {
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(QString view READ view NOTIFY viewChanged)
     Q_PROPERTY(QString viewName READ viewName NOTIFY viewNameChanged)
-    Q_PROPERTY(QVariantList tasks READ tasks NOTIFY tasksChanged)
+    // The project on screen ("" for the Inbox and the dated lists).
+    Q_PROPERTY(QString viewProject READ viewProject NOTIFY viewChanged)
+    // The lists below are JS arrays of plain objects in QML; typed QVariant
+    // so QML tooling treats them that way rather than as a C++ list type.
+    Q_PROPERTY(QVariant tasks READ tasks NOTIFY tasksChanged)
     // What the list shows: tasks, and in a project or the Inbox, a heading
     // for each section ({kind: "section"}) before its tasks. Each row has a
     // unique key ("task:<id>", "section:<id>").
-    Q_PROPERTY(QVariantList rows READ rows NOTIFY tasksChanged)
-    Q_PROPERTY(QVariantList projects READ projects NOTIFY projectsChanged)
+    Q_PROPERTY(QVariant rows READ rows NOTIFY tasksChanged)
+    Q_PROPERTY(QVariant projects READ projects NOTIFY projectsChanged)
     // Every project a task can move to, the Inbox first, each followed by
     // its sections: {key, kind: "project"|"section", projectId, sectionId,
     // name, path, depth, color, inbox}.
-    Q_PROPERTY(QVariantList destinations READ destinations NOTIFY projectsChanged)
+    Q_PROPERTY(QVariant destinations READ destinations NOTIFY projectsChanged)
     // Todoist's project colors: [{name: "berry_red", hex: "#b8255f"}, ...].
-    Q_PROPERTY(QVariantList colors READ colors CONSTANT)
+    Q_PROPERTY(QVariant colors READ colors CONSTANT)
     Q_PROPERTY(int todayCount READ todayCount NOTIFY countsChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
@@ -52,6 +56,7 @@ public:
     QString error() const { return m_error; }
     QString view() const { return m_view; }
     QString viewName() const;
+    QString viewProject() const { return m_view.startsWith("project:") ? m_view.mid(8) : QString(); }
     QVariantList tasks() const;
     QVariantList rows() const;
     QVariantList projects() const;

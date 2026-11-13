@@ -3,6 +3,7 @@
 #include <QPainter>
 #include <QStringList>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -70,8 +71,8 @@ void PixelArt::setArt(const QString &art) {
     relayout();
 }
 
-void PixelArt::setPixelScale(int scale) {
-    scale = std::max(1, scale);
+void PixelArt::setPixelScale(double value) {
+    const int scale = std::max(1, int(std::lround(value)));
     if (scale == m_scale) return;
     m_scale = scale;
     emit artChanged();

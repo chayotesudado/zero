@@ -17,7 +17,8 @@ class PixelArt : public QQuickPaintedItem {
     QML_ELEMENT
     // "lockup" (the check and ZERO) or "check".
     Q_PROPERTY(QString art READ art WRITE setArt NOTIFY artChanged)
-    Q_PROPERTY(int pixelScale READ pixelScale WRITE setPixelScale NOTIFY artChanged)
+    // A whole number; anything else is rounded.
+    Q_PROPERTY(double pixelScale READ pixelScale WRITE setPixelScale NOTIFY artChanged)
     Q_PROPERTY(QColor faceColor READ faceColor WRITE setFaceColor NOTIFY colorsChanged)
     Q_PROPERTY(QColor midColor READ midColor WRITE setMidColor NOTIFY colorsChanged)
     Q_PROPERTY(QColor deepColor READ deepColor WRITE setDeepColor NOTIFY colorsChanged)
@@ -36,8 +37,8 @@ public:
 
     QString art() const { return m_art; }
     void setArt(const QString &art);
-    int pixelScale() const { return m_scale; }
-    void setPixelScale(int scale);
+    double pixelScale() const { return m_scale; }
+    void setPixelScale(double scale);
     QColor faceColor() const { return m_face; }
     void setFaceColor(const QColor &c);
     QColor midColor() const { return m_mid; }

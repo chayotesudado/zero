@@ -21,7 +21,7 @@ Popup {
     readonly property var matches: {
         var query = filter.text.trim().toLowerCase()
         var out = []
-        for (var i = 0; i < items.length; i++)
+        for (let i = 0; i < items.length; i++)
             if (query === "" || items[i].path.toLowerCase().indexOf(query) >= 0)
                 out.push(items[i])
         return out

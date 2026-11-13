@@ -66,15 +66,15 @@ ApplicationWindow {
     readonly property bool detailOnTop: taskDetail.visible && !movePicker.visible && !schedulePicker.visible
                                         && !confirmDialog.visible
     readonly property bool detailKeys: detailOnTop && !typing
-    readonly property bool inProject: Backend.view.indexOf("project:") === 0
+    readonly property bool inProject: Backend.viewProject !== ""
     readonly property string today: Dates.isoToday()
     // Projects and the Inbox have sections; the dated lists don't.
-    readonly property bool sectionsHere: Backend.view === "inbox" || Backend.view.indexOf("project:") === 0
+    readonly property bool sectionsHere: Backend.view === "inbox" || inProject
 
     // The lists in the order [ and ] walk through them.
     readonly property var views: {
         var list = ["inbox", "today", "upcoming"]
-        for (var i = 0; i < Backend.projects.length; i++)
+        for (let i = 0; i < Backend.projects.length; i++)
             list.push("project:" + Backend.projects[i].id)
         return list
     }
@@ -91,7 +91,7 @@ ApplicationWindow {
 
     function currentProject() {
         var list = Backend.projects
-        for (var i = 0; i < list.length; i++)
+        for (let i = 0; i < list.length; i++)
             if ("project:" + list[i].id === Backend.view) return list[i]
         return null
     }
@@ -147,7 +147,7 @@ ApplicationWindow {
         var cy = y + view.contentY
         var i = view.indexAt(view.width / 2, cy)
         if (i < 0) {
-            var first = view.itemAtIndex(0)
+            let first = view.itemAtIndex(0)
             return first && cy < first.y ? 0 : count
         }
         var row = view.itemAtIndex(i)
@@ -155,7 +155,9 @@ ApplicationWindow {
     }
 
     // The line marking a drop at index, in the list's content coordinates.
-    function dropLineY(view, count, index) {
+    // Given the content height too, so a binding on it runs again once the
+    // rows are laid out.
+    function dropLineY(view, count, index, contentHeight) {
         var row = view.itemAtIndex(Math.min(index, count - 1))
         if (!row) return -1
         return index >= count ? row.y + row.height : row.y
@@ -167,23 +169,23 @@ ApplicationWindow {
     // inbox is the Inbox's id, looked up once when the drag starts.
     function sidebarTargetAt(scenePoint, inbox) {
         var fixed = [[inboxItem, inbox], [todayItem, ""]]
-        for (var i = 0; i < fixed.length; i++) {
-            var item = fixed[i][0]
-            var p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
+        for (let i = 0; i < fixed.length; i++) {
+            let item = fixed[i][0]
+            let p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
             if (p.x >= 0 && p.y >= 0 && p.x < item.width && p.y < item.height)
                 return { view: item.view, projectId: fixed[i][1], name: item.label }
         }
         var q = projectList.mapFromItem(null, scenePoint.x, scenePoint.y)
         if (q.x < 0 || q.y < 0 || q.x >= projectList.width || q.y >= projectList.height) return null
         var index = projectList.indexAt(q.x, q.y + projectList.contentY)
-        var item = index < 0 ? null : projectList.itemAtIndex(index)
+        const item = index < 0 ? null : projectList.itemAtIndex(index) as SidebarItem
         if (!item || !item.project) return null
         return { view: "project:" + item.project.id, projectId: item.project.id, name: item.project.name }
     }
 
     function inboxId() {
         var list = Backend.destinations
-        for (var i = 0; i < list.length; i++)
+        for (let i = 0; i < list.length; i++)
             if (list[i].inbox) return list[i].projectId
         return ""
     }
@@ -196,7 +198,7 @@ ApplicationWindow {
     }
 
     function completeSelected() {
-        var item = taskList.itemAtIndex(taskList.currentIndex)
+        const item = taskList.itemAtIndex(taskList.currentIndex) as ListEntry
         if (item) item.complete()
     }
 
@@ -248,8 +250,8 @@ ApplicationWindow {
             // A project's list has all its tasks, so the count is exact. A
             // dated list (and the details opened from one) may not show
             // them all, so Cancel takes Enter there.
-            var subtasks = Backend.subtaskCount(row.id)
-            var exact = win.sectionsHere
+            let subtasks = Backend.subtaskCount(row.id)
+            let exact = win.sectionsHere
             confirmDialog.ask(qsTr("Delete “%1”?").arg(row.content),
                               subtasks > 0 ? qsTr("%n subtasks will be deleted with it.", "", subtasks)
                                            : exact ? "" : qsTr("Any subtasks it has will be deleted with it."),
@@ -275,7 +277,7 @@ ApplicationWindow {
     Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) Qt.openUrlExternally(t.url) } }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive || win.detailKeys; onActivated: win.moveTask(win.targetTask()) }
-    Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && Backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: win.moveProject(win.currentProject()) }
     Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.deleteRow(win.selectedRow()) }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
@@ -284,9 +286,9 @@ ApplicationWindow {
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) Backend.schedule(t.id, "today") } }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: newProjectDialog.openNew() }
-    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: win.keysLive && Backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: projectColorDialog.openFor(win.currentProject()) }
-    Shortcut { sequence: "Ctrl+Delete"; context: Qt.ApplicationShortcut; enabled: win.keysLive && Backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "Ctrl+Delete"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: deleteProjectDialog.openFor(win.currentProject()) }
     Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: Backend.refresh() }
     Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.openSelected() }
@@ -311,12 +313,13 @@ ApplicationWindow {
     Repeater {
         model: 4
         Item {
+            id: priorityKey
             required property int index
             Shortcut {
-                sequence: "Ctrl+" + (index + 1)
+                sequence: "Ctrl+" + (priorityKey.index + 1)
                 context: Qt.ApplicationShortcut
                 enabled: win.keysLive || win.detailOnTop
-                onActivated: { var t = win.targetTask(); if (t) Backend.setPriority(t.id, index + 1) }
+                onActivated: { const t = win.targetTask(); if (t) Backend.setPriority(t.id, priorityKey.index + 1) }
             }
         }
     }
@@ -338,11 +341,10 @@ ApplicationWindow {
     // Coming back to the window picks up changes made elsewhere.
     onActiveChanged: if (active && Backend.signedIn) Backend.refresh()
 
-    // Right-to-left languages mirror the window; the Translator sets the
-    // application's layout direction.
+    // Right-to-left languages mirror the window.
     Item {
         anchors.fill: parent
-        LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.enabled: Translator.rightToLeft
         LayoutMirroring.childrenInherit: true
 
         SignInView {
@@ -462,8 +464,8 @@ ApplicationWindow {
 
                         DropLine {
                             visible: projectList.dragProject !== null && projectList.dropAt >= 0
-                            y: Math.max(0, (projectList.dropAt, projectList.contentHeight,
-                                win.dropLineY(projectList, projectList.count, projectList.dropAt)) - 1)
+                            y: Math.max(0, win.dropLineY(projectList, projectList.count, projectList.dropAt,
+                                                         projectList.contentHeight) - 1)
                             x: 20 + (projectList.dragProject ? projectList.dragProject.depth : 0) * 14
                             width: projectList.width - x - 12
                         }
@@ -732,7 +734,7 @@ ApplicationWindow {
                     function moveSelection(delta) { select(currentIndex < 0 ? 0 : currentIndex + delta) }
                     function restoreSelection(previous) {
                         var rows = Backend.rows
-                        for (var i = 0; i < rows.length; i++)
+                        for (let i = 0; i < rows.length; i++)
                             if (rows[i].key === selectedId) { currentIndex = i; return }
                         if (selectedId === "") { currentIndex = -1; return }
                         select(previous)
@@ -804,11 +806,11 @@ ApplicationWindow {
                         var rows = dragRows
                         if (!dragRow || dragRow.kind === "section" || dropAt < 0) return 0
                         var from = -1, to = -1
-                        for (var k = 0; k < rows.length; k++)
+                        for (let k = 0; k < rows.length; k++)
                             if (rows[k].key === dragRow.key) from = k
                         to = from + 1
                         while (from >= 0 && to < rows.length && rows[to].kind === "task" && rows[to].depth > rows[from].depth) to++
-                        for (var i = dropAt; i < rows.length; i++) {
+                        for (let i = dropAt; i < rows.length; i++) {
                             if (i >= from && i < to) continue
                             return rows[i].kind === "task" ? (rows[i].depth || 0) : 0
                         }
@@ -831,8 +833,7 @@ ApplicationWindow {
 
                     DropLine {
                         visible: taskList.dragRow !== null && taskList.dropAt >= 0
-                        y: Math.max(0, (taskList.dropAt, taskList.contentHeight,
-                            win.dropLineY(taskList, taskList.count, taskList.dropAt)) - 1)
+                        y: Math.max(0, win.dropLineY(taskList, taskList.count, taskList.dropAt, taskList.contentHeight) - 1)
                         x: 16 + taskList.dropDepth * 26
                         width: taskList.width - x - 16
                         z: 5
@@ -868,74 +869,7 @@ ApplicationWindow {
                     }
 
                     // A task, or a section's heading.
-                    delegate: Item {
-                        id: entry
-                        required property var modelData
-                        required property int index
-                        readonly property bool isSection: modelData.kind === "section"
-                        readonly property bool current: ListView.isCurrentItem
-                        width: ListView.view.width
-                        height: loader.implicitHeight
-                        opacity: taskList.dragRow && taskList.dragRow.key === modelData.key ? 0.35 : 1
-
-                        function complete() { if (!isSection) (loader.item as TaskRow)?.complete() }
-
-                        // Dragging picks the row up; it lands where the line shows.
-                        DragHandler {
-                            target: null
-                            enabled: win.sectionsHere || !entry.isSection
-                            cursorShape: Qt.ClosedHandCursor
-                            onActiveChanged: {
-                                if (active) {
-                                    taskList.select(entry.index)
-                                    taskList.forceActiveFocus()
-                                    taskList.dragRows = Backend.rows
-                                    taskList.dragInbox = win.inboxId()
-                                    taskList.dragRow = entry.modelData
-                                } else {
-                                    taskList.dropDragged()
-                                }
-                            }
-                            onCentroidChanged: if (active) taskList.dragMoved(centroid.scenePosition)
-                        }
-                        // A refresh that rebuilds the list mid-drag ends it.
-                        Component.onDestruction: if (taskList.dragRow && taskList.dragRow.key === modelData.key) taskList.dragRow = null
-
-                        Loader {
-                            id: loader
-                            width: parent.width
-                            sourceComponent: entry.isSection ? sectionComponent : taskComponent
-                        }
-                        Component {
-                            id: taskComponent
-                            TaskRow {
-                                task: entry.modelData
-                                selected: entry.current
-                                draggable: true
-                                showProject: taskList.grouped
-                                groupedByDay: taskList.grouped
-                                narrow: taskList.width < 560
-                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
-                                onCompleteRequested: Backend.complete(entry.modelData.id)
-                                onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
-                                onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
-                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
-                                onOpenRequested: { taskList.select(entry.index); taskDetail.openFor(entry.modelData.id) }
-                            }
-                        }
-                        Component {
-                            id: sectionComponent
-                            SectionRow {
-                                section: entry.modelData
-                                selected: entry.current
-                                draggable: true
-                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
-                                onAddRequested: { taskList.select(entry.index); addField.start() }
-                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
-                                onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
-                            }
-                        }
-                    }
+                    delegate: ListEntry {}
 
                     Column {
                         anchors.centerIn: parent
@@ -1147,6 +1081,76 @@ ApplicationWindow {
     }
 
     // Where a dragged row would land.
+    // A row of the task list: a task, or a section's heading.
+    component ListEntry: Item {
+        id: entry
+        required property var modelData
+        required property int index
+        readonly property bool isSection: modelData.kind === "section"
+        readonly property bool current: ListView.isCurrentItem
+        width: ListView.view.width
+        height: loader.implicitHeight
+        opacity: taskList.dragRow && taskList.dragRow.key === modelData.key ? 0.35 : 1
+
+        function complete() { if (!isSection) (loader.item as TaskRow)?.complete() }
+
+        // Dragging picks the row up; it lands where the line shows.
+        DragHandler {
+            target: null
+            enabled: win.sectionsHere || !entry.isSection
+            cursorShape: Qt.ClosedHandCursor
+            onActiveChanged: {
+                if (active) {
+                    taskList.select(entry.index)
+                    taskList.forceActiveFocus()
+                    taskList.dragRows = Backend.rows
+                    taskList.dragInbox = win.inboxId()
+                    taskList.dragRow = entry.modelData
+                } else {
+                    taskList.dropDragged()
+                }
+            }
+            onCentroidChanged: if (active) taskList.dragMoved(centroid.scenePosition)
+        }
+        // A refresh that rebuilds the list mid-drag ends it.
+        Component.onDestruction: if (taskList.dragRow && taskList.dragRow.key === modelData.key) taskList.dragRow = null
+
+        Loader {
+            id: loader
+            width: parent.width
+            sourceComponent: entry.isSection ? sectionComponent : taskComponent
+        }
+        Component {
+            id: taskComponent
+            TaskRow {
+                task: entry.modelData
+                selected: entry.current
+                draggable: true
+                showProject: taskList.grouped
+                groupedByDay: taskList.grouped
+                narrow: taskList.width < 560
+                onSelectRequested: { taskList.select(entry.index); win.focusList() }
+                onCompleteRequested: Backend.complete(entry.modelData.id)
+                onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
+                onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
+                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                onOpenRequested: { taskList.select(entry.index); taskDetail.openFor(entry.modelData.id) }
+            }
+        }
+        Component {
+            id: sectionComponent
+            SectionRow {
+                section: entry.modelData
+                selected: entry.current
+                draggable: true
+                onSelectRequested: { taskList.select(entry.index); win.focusList() }
+                onAddRequested: { taskList.select(entry.index); addField.start() }
+                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
+            }
+        }
+    }
+
     component DropLine: Rectangle {
         height: 2
         radius: 1
