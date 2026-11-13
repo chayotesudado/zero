@@ -69,8 +69,10 @@ QString Translator::pluralCategory(const QString &language, long long count) {
 // app's numbers and dates match the desktop's (Arabic there uses Western
 // digits); without Omarchy, Qt's own locale for the code.
 QLocale Translator::formatLocale(const QString &language) {
-    QFile registry(qEnvironmentVariable("OMARCHY_PATH") + "/default/i18n/locales.json");
-    if (registry.open(QIODevice::ReadOnly)) {
+    // Only under Omarchy's own path: unset, it would be "/default/...".
+    const QString omarchy = qEnvironmentVariable("OMARCHY_PATH");
+    QFile registry(omarchy + "/default/i18n/locales.json");
+    if (!omarchy.isEmpty() && registry.open(QIODevice::ReadOnly)) {
         const QString name = QJsonDocument::fromJson(registry.readAll()).object()
                                  .value(language).toObject().value("formatLocale").toString();
         if (!name.isEmpty())

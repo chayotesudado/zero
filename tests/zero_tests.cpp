@@ -347,6 +347,24 @@ private slots:
         QVERIFY(!error.isNetwork());
     }
 
+    // The language registry is read from Omarchy's path only, never from
+    // the filesystem root when OMARCHY_PATH is unset.
+    void readsTheLocaleRegistryOnlyFromOmarchy() {
+        QTemporaryDir dir;
+        QDir().mkpath(dir.path() + "/default/i18n");
+        QFile registry(dir.path() + "/default/i18n/locales.json");
+        QVERIFY(registry.open(QIODevice::WriteOnly));
+        registry.write(R"({"ar": {"formatLocale": "ar_SA@numbers=latn"}, "es": {"formatLocale": "es_MX"}})");
+        registry.close();
+        const QByteArray saved = qgetenv("OMARCHY_PATH");
+        qputenv("OMARCHY_PATH", dir.path().toUtf8());
+        QCOMPARE(Translator::formatLocale("es").name(), QString("es_MX"));
+        qunsetenv("OMARCHY_PATH");
+        QCOMPARE(Translator::formatLocale("es").name(), QLocale("es").name());
+        if (!saved.isEmpty())
+            qputenv("OMARCHY_PATH", saved);
+    }
+
     void backendCompletesAndUndoes() {
         QTemporaryDir dir;
         Credentials credentials(dir.path() + "/token");
