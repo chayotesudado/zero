@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Controls.Basic as Basic
 import QtQuick.Layouts
+import Zero
 import "Dates.js" as Dates
 
 ApplicationWindow {
@@ -26,6 +27,16 @@ ApplicationWindow {
     // the list, and picking a list, Esc, or a tap beside it puts it away.
     readonly property bool compact: width < 720
     property bool sidebarOpen: false
+
+    // The pixel art's three tones, from the theme: the text color for the
+    // faces, fading to the muted color for the depth behind them.
+    readonly property color pixelFace: theme.foreground
+    readonly property color pixelMid: theme.mix(theme.foreground, theme.muted, 0.5)
+    readonly property color pixelDeep: theme.muted
+    // The line the logo and the page title share: from the window's top,
+    // and as tall as the logo.
+    readonly property int headerTop: 22
+    readonly property int headerHeight: 30
     onCompactChanged: sidebarOpen = false
     // Single-key shortcuts stand down while typing into a field.
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
@@ -354,41 +365,21 @@ ApplicationWindow {
                     anchors.bottomMargin: 12
                     spacing: 2
 
-                    // The ZERO wordmark, pixel art 39 by 10, at exactly three
-                    // times that (117 by 30), unsmoothed, so every pixel stays
-                    // sharp, lined up with the lists' icons below. PNGs at each
-                    // scale, not the SVG, so it needs no Qt SVG; Qt picks the
-                    // @2x or @4x one on a HiDPI screen.
-                    //
-                    // It sits on one line with the page title: the middle of
-                    // its letters' bright faces (rows 0-7 of 10, so 12 px down
-                    // at 3x; the bottom rows are their darker depth) on the
-                    // middle of the title's capitals. Below it, 1.5 times the
-                    // gap between the lists' icons, so it reads as a header,
-                    // not the first item.
-                    Image {
-                        readonly property real faceMiddle: 12
-                        FontMetrics { id: titleMetrics; font: pageTitle.font }
-                        // Where the title's capitals are middled: its baseline,
-                        // less half an H. Both columns start at the window's
-                        // top, so the title's y in its column is its y here.
-                        // Naming the font makes this re-measure when it changes;
-                        // the call alone isn't a dependency QML tracks.
-                        readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
-                        readonly property real titleCapMiddle: pageHeader.y + pageTitle.y + pageTitle.baselineOffset
-                                                               - capHeight / 2
-                        readonly property real wantedTop: titleCapMiddle - faceMiddle - sidebarColumn.anchors.topMargin
+                    // The logo, the check and ZERO, drawn in the theme's
+                    // colors at three times its pixel art (165 by 30), lined
+                    // up with the lists' icons below. It shares its line with
+                    // the page title, which is drawn the same way at the same
+                    // height, and below it there's 1.5 times the gap between
+                    // the lists, so it reads as a header, not the first item.
+                    PixelText {
+                        art: "lockup"
+                        maxScale: 3
+                        faceColor: win.pixelFace
+                        midColor: win.pixelMid
+                        deepColor: win.pixelDeep
                         Layout.leftMargin: 20
-                        // A number however the fonts come out, so layout never
-                        // gets NaN.
-                        Layout.topMargin: isFinite(wantedTop) ? Math.max(0, Math.round(wantedTop)) : 4
+                        Layout.topMargin: win.headerTop - sidebarColumn.anchors.topMargin
                         Layout.bottomMargin: 22
-                        source: "qrc:/zero-wordmark.png"
-                        fillMode: Image.PreserveAspectFit
-                        Layout.preferredWidth: 117
-                        Layout.preferredHeight: 30
-                        smooth: false
-                        mipmap: false
                         Accessible.role: Accessible.StaticText
                         Accessible.name: "Zero"
                     }
@@ -508,9 +499,12 @@ ApplicationWindow {
                 RowLayout {
                     id: pageHeader
                     Layout.fillWidth: true
-                    Layout.leftMargin: win.compact ? 16 : 32
+                    // The title starts where the add box's text does, as the
+                    // logo starts where the lists' icons do.
+                    Layout.leftMargin: win.compact ? 16 : 28
                     Layout.rightMargin: win.compact ? 16 : 24
-                    Layout.topMargin: 22
+                    Layout.topMargin: win.headerTop
+                    Layout.preferredHeight: win.headerHeight
                     spacing: 12
 
                     Label {
@@ -525,18 +519,51 @@ ApplicationWindow {
                         ToolTip.text: qsTr("Lists (Ctrl+B)")
                         ToolTip.delay: 400
                     }
-                    Label {
+                    // The list's name in the logo's lettering, its faces on
+                    // the logo's line. Long names drop to two times, then
+                    // are cut short; ones the lettering can't draw (emoji,
+                    // other scripts) use the regular font, on the same line.
+                    Item {
                         id: pageTitle
-                        Layout.fillWidth: win.compact
-                        text: backend.viewName
-                        textFormat: Text.PlainText
-                        font.pixelSize: 20
-                        font.bold: true
-                        color: theme.foreground
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: 480
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: win.headerHeight
+                        readonly property string text: backend.viewName
+                        // Where the faces' middle row sits, as in the logo.
+                        readonly property real faceMiddle: 12
+
+                        PixelText {
+                            id: pixelTitle
+                            visible: supported
+                            text: pageTitle.text
+                            maxScale: 3
+                            minScale: 2
+                            maxWidth: pageTitle.width
+                            faceColor: win.pixelFace
+                            midColor: win.pixelMid
+                            deepColor: win.pixelDeep
+                            y: pageTitle.faceMiddle - 4 * pixelScale - faceTop
+                            Accessible.role: Accessible.Heading
+                            Accessible.name: pageTitle.text
+                        }
+                        Label {
+                            id: plainTitle
+                            visible: !pixelTitle.supported
+                            width: parent.width
+                            text: pageTitle.text
+                            textFormat: Text.PlainText
+                            font.pixelSize: 20
+                            font.bold: true
+                            color: theme.foreground
+                            elide: Text.ElideRight
+                            FontMetrics { id: titleMetrics; font: plainTitle.font }
+                            // The capitals' middle on the faces' middle.
+                            // Naming the font makes this re-measure when it
+                            // changes; the call alone isn't a dependency.
+                            readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
+                            readonly property real wantedY: pageTitle.faceMiddle - baselineOffset + capHeight / 2
+                            y: isFinite(wantedY) ? Math.round(wantedY) : 0
+                        }
                     }
-                    Item { Layout.fillWidth: true }
                     BusyIndicator {
                         running: backend.busy
                         opacity: running ? 1 : 0
@@ -553,6 +580,7 @@ ApplicationWindow {
 
                 // A failed request says why, and stays until dismissed or fixed.
                 Rectangle {
+                    id: errorBanner
                     Layout.fillWidth: true
                     Layout.leftMargin: 28
                     Layout.rightMargin: 24
@@ -588,8 +616,11 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
                     Layout.rightMargin: 16
-                    Layout.topMargin: 14
-                    implicitHeight: 34
+                    // Level with Inbox in the lists, and as tall, unless the
+                    // error banner is in the way.
+                    Layout.topMargin: errorBanner.visible ? 12
+                        : Math.max(8, sidebarColumn.anchors.topMargin + inboxItem.y - win.headerTop - win.headerHeight)
+                    implicitHeight: inboxItem.height
                     leftPadding: 12
                     rightPadding: 12
                     topPadding: 0
@@ -918,11 +949,14 @@ ApplicationWindow {
                         anchors.centerIn: parent
                         visible: backend.loaded && backend.rows.length === 0
                         spacing: 8
-                        Label {
+                        // The logo's check, nothing left to do.
+                        PixelText {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "✓"
-                            font.pixelSize: 44
-                            color: theme.accent
+                            art: "check"
+                            maxScale: 4
+                            faceColor: win.pixelFace
+                            midColor: win.pixelMid
+                            deepColor: win.pixelDeep
                         }
                         Label {
                             anchors.horizontalCenter: parent.horizontalCenter

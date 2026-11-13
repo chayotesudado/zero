@@ -8,6 +8,7 @@
 #include "backend.h"
 #include "credentials.h"
 #include "fakeserver.h"
+#include "pixeltext.h"
 #include "tasks.h"
 #include "theme.h"
 #include "todoist.h"
@@ -70,6 +71,64 @@ class ZeroTests : public QObject {
     Q_OBJECT
 
 private slots:
+    // The lettering spells ZERO exactly as the logo does, so titles drawn in
+    // it match the brand art pixel for pixel.
+    void pixelTextMatchesTheLogo() {
+        const auto lockup = PixelText::layoutArt("lockup");
+        QCOMPARE(lockup.width, 55);
+        QCOMPARE(lockup.height, 10);
+        QCOMPARE(lockup.face.size(), 154);
+
+        QList<QPoint> letters;
+        for (const QPoint &p : lockup.face)
+            if (p.x() >= 16)
+                letters.append(p - QPoint(16, 0));
+        auto zero = PixelText::layoutText("zero");
+        QCOMPARE(zero.shown, QString("ZERO"));
+        QCOMPARE(zero.width, 39);
+        QCOMPARE(zero.height, 10);
+        QCOMPARE(zero.faceTop, 0);
+        std::sort(letters.begin(), letters.end(), [](QPoint a, QPoint b) { return std::pair(a.x(), a.y()) < std::pair(b.x(), b.y()); });
+        std::sort(zero.face.begin(), zero.face.end(), [](QPoint a, QPoint b) { return std::pair(a.x(), a.y()) < std::pair(b.x(), b.y()); });
+        QCOMPARE(zero.face, letters);
+
+        const auto check = PixelText::layoutArt("check");
+        QCOMPARE(check.width, 14);
+        QVERIFY(PixelText::layoutArt("nope").face.isEmpty());
+    }
+
+    void pixelTextHandlesAnyTitle() {
+        // Accents are drawn above, in room kept only when there are some.
+        const auto upcoming = PixelText::layoutText("Próximo");
+        QVERIFY(upcoming.supported);
+        QCOMPARE(upcoming.faceTop, 5);
+        QCOMPARE(upcoming.height, 15);
+        QVERIFY(std::any_of(upcoming.face.cbegin(), upcoming.face.cend(), [](QPoint p) { return p.y() < 5; }));
+        QCOMPARE(PixelText::layoutText("Señales, año 2026: ¡ya!").supported, false); // no ¡
+        QVERIFY(PixelText::layoutText("Señales, año 2026 (casa & trabajo) #1 - ok?").supported);
+        // Characters it can't draw leave it to the plain font.
+        QVERIFY(!PixelText::layoutText("🏠 Home").supported);
+        QVERIFY(!PixelText::layoutText("Дом").supported);
+        // Spaces collapse; nothing draws nothing.
+        QCOMPARE(PixelText::layoutText("  a   b ").shown, QString("A B"));
+        QCOMPARE(PixelText::layoutText("").width, 0);
+
+        // The biggest scale that fits, then cut short with an ellipsis.
+        int scale = 0;
+        const int inbox = PixelText::layoutText("Inbox").width;
+        QCOMPARE(PixelText::fit("Inbox", inbox * 3, 3, 2, &scale).shown, QString("INBOX"));
+        QCOMPARE(scale, 3);
+        PixelText::fit("Inbox", inbox * 3 - 1, 3, 2, &scale);
+        QCOMPARE(scale, 2);
+        const auto cut = PixelText::fit("Planificación del año", 200, 3, 2, &scale);
+        QCOMPARE(scale, 2);
+        QVERIFY(cut.shown.endsWith(QChar(0x2026)));
+        QVERIFY(!cut.shown.contains(QStringLiteral(" \u2026")));
+        QVERIFY(cut.width * 2 <= 200);
+        QVERIFY(PixelText::fit("Inbox", -1, 3, 2, &scale).supported);
+        QCOMPARE(scale, 3);
+    }
+
     void init() {
         qunsetenv("TODOIST_API_TOKEN");
         qunsetenv("ZERO_API_URL");

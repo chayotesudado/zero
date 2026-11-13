@@ -12,10 +12,11 @@
 #include "backend.h"
 #include "cli.h"
 #include "credentials.h"
+#include "pixeltext.h"
 #include "theme.h"
 #include "translator.h"
 
-static const char *version = "0.3.4";
+static const char *version = "0.3.5";
 
 int main(int argc, char *argv[]) {
     QStringList arguments;
@@ -53,6 +54,7 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Backend backend;
 
+    qmlRegisterType<PixelText>("Zero", 1, 0, "PixelText");
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
