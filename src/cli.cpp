@@ -131,6 +131,18 @@ QString errorCode(const ApiError &error) {
 
 int failure(bool json, const ApiError &error) { return failure(json, errorCode(error), error.message); }
 
+// Text from Todoist, for a terminal: control characters (escape sequences a
+// task's name could carry, from a shared project say) and the bidi controls
+// that reorder what's shown become spaces. Emoji joiners stay.
+QString printable(QString text) {
+    for (QChar &c : text) {
+        const char16_t u = c.unicode();
+        if (c.category() == QChar::Other_Control || (u >= 0x202A && u <= 0x202E) || (u >= 0x2066 && u <= 0x2069))
+            c = ' ';
+    }
+    return text;
+}
+
 int printListing(const Listing &listing, bool json) {
     if (!listing.error.isEmpty())
         return failure(json, listing.error);
@@ -153,12 +165,12 @@ int printListing(const Listing &listing, bool json) {
         if (task.hasTime())
             when += " " + task.dueTime.toString("HH:mm");
         const Project project = listing.projects.value(task.projectId);
-        out() << (task.isOverdue(now) ? "! " : "  ") << task.content;
+        out() << (task.isOverdue(now) ? "! " : "  ") << printable(task.content);
         if (!when.isEmpty())
             out() << "  [" << when << "]";
         if (!project.name.isEmpty() && !project.inbox)
-            out() << "  #" << project.name;
-        out() << "  (" << task.id << ")" << Qt::endl;
+            out() << "  #" << printable(project.name);
+        out() << "  (" << printable(task.id) << ")" << Qt::endl;
     }
     return 0;
 }
@@ -292,7 +304,7 @@ int run(const QStringList &all) {
         if (json)
             printJson({{"ok", true}, {"task", Tasks::toJson(task, QDateTime::currentDateTime(), {})}});
         else
-            out() << tr("Added “%1”.").arg(task.content) << Qt::endl;
+            out() << tr("Added “%1”.").arg(printable(task.content)) << Qt::endl;
         return 0;
     }
 

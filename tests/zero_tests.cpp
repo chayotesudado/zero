@@ -299,6 +299,54 @@ private slots:
         QCOMPARE(calls, 500);
     }
 
+    // Answers to a refresh made before signing out don't bring the old
+    // account's projects back.
+    void backendIgnoresAnswersAfterSigningOut() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            return {200, page({})};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        QTRY_VERIFY(!backend.busy());
+        backend.refresh();
+        backend.signOut();
+        QTRY_VERIFY(!backend.busy());
+        QVERIFY(!backend.signedIn());
+        QVERIFY(backend.projects().isEmpty());
+    }
+
+    // A task's link stays on Todoist's site whatever its id holds.
+    void taskLinksStayOnTodoist() {
+        Task t;
+        t.id = "6X7rM8997g3RQmvh";
+        QCOMPARE(t.url(), QString("https://app.todoist.com/app/task/6X7rM8997g3RQmvh"));
+        t.id = "../../evil?x=1#y";
+        QVERIFY(t.url().startsWith("https://app.todoist.com/app/task/"));
+        QVERIFY(!t.url().mid(33).contains('/'));
+        QVERIFY(!t.url().contains('?'));
+        QVERIFY(!t.url().contains('#'));
+    }
+
+    // A reply that isn't JSON came from Todoist, so it isn't a network error.
+    void badRepliesArentNetworkErrors() {
+        FakeServer server([](const FakeServer::Request &) -> FakeServer::Response { return {200, "<html>"}; });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Todoist client;
+        client.setToken("good");
+        ApiError error;
+        bool answered = false;
+        client.quickAdd("x", [&](const QJsonObject &, const ApiError &e) { error = e; answered = true; });
+        QTRY_VERIFY(answered);
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!error.isNetwork());
+    }
+
     void backendCompletesAndUndoes() {
         QTemporaryDir dir;
         Credentials credentials(dir.path() + "/token");

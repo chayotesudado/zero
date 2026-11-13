@@ -302,9 +302,9 @@ ApplicationWindow {
     Shortcut { sequences: ["Alt+K", "Alt+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
         onActivated: win.moveSelectedBy(-1) }
     Shortcut { sequences: ["Alt+Shift+J", "Alt+Shift+Down"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
-        onActivated: Backend.moveProjectBy(win.currentProject().id, 1) }
+        onActivated: { var p = win.currentProject(); if (p) Backend.moveProjectBy(p.id, 1) } }
     Shortcut { sequences: ["Alt+Shift+K", "Alt+Shift+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
-        onActivated: Backend.moveProjectBy(win.currentProject().id, -1) }
+        onActivated: { var p = win.currentProject(); if (p) Backend.moveProjectBy(p.id, -1) } }
     Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: sectionDialog.openRenameProject(win.currentProject()) }
     // Priority as users count it: Ctrl+1 is p1. Plain 1–3 pick lists.
@@ -626,7 +626,6 @@ ApplicationWindow {
                     verticalAlignment: TextInput.AlignVCenter
                     font.pixelSize: 13
                     color: Theme.foreground
-                    placeholderTextColor: Theme.muted
                     selectionColor: Theme.selection
                     selectedTextColor: Theme.foreground
                     // Set by Shift+N: what's added goes under this task,
@@ -659,7 +658,19 @@ ApplicationWindow {
                             parentTask = null
                         }
                     }
-                    placeholderText: parentTask ? qsTr("Add a subtask to “%1”").arg(parentTask.content) : qsTr("Add a task (N)")
+                    // Drawn here rather than as placeholderText, which would
+                    // read a task's name as markup.
+                    Label {
+                        x: addField.leftPadding
+                        width: addField.width - addField.leftPadding - addField.rightPadding
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: addField.length === 0 && addField.preeditText === ""
+                        text: addField.parentTask ? qsTr("Add a subtask to “%1”").arg(addField.parentTask.content) : qsTr("Add a task (N)")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        font: addField.font
+                        color: Theme.muted
+                    }
                     background: Rectangle {
                         radius: Math.min(6, Theme.radius)
                         color: addField.activeFocus ? Theme.tint(0.04) : "transparent"
@@ -683,6 +694,8 @@ ApplicationWindow {
                              ? qsTr("Quick add: “Pay rent friday 9am #Home p1 @errand”. Without a #project it goes to the Inbox.")
                              : qsTr("Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.").arg(addField.prefill.trim()))
                           : " "
+                    // It quotes task and project names, which aren't markup.
+                    textFormat: Text.PlainText
                     font.pixelSize: 11
                     color: Theme.muted
                     elide: Text.ElideRight

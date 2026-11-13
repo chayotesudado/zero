@@ -77,7 +77,8 @@ void Todoist::send(const QByteArray &verb, const QString &path, const QUrlQuery 
         QJsonParseError parseError;
         const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
         if (parseError.error != QJsonParseError::NoError) {
-            done({}, tr("Todoist sent a reply that isn't JSON."));
+            // Reached, so not a network error: it's Todoist's answer that's off.
+            done({}, ApiError(tr("Todoist sent a reply that isn't JSON."), status));
             return;
         }
         // A bare array is wrapped, so list callers see the same shape as the
@@ -89,20 +90,24 @@ void Todoist::send(const QByteArray &verb, const QString &path, const QUrlQuery 
 void Todoist::list(const QString &path, QUrlQuery query, ListCallback done) {
     auto collected = std::make_shared<QJsonArray>();
     auto pages = std::make_shared<int>(0);
-    auto page = std::make_shared<std::function<void(const QString &)>>();
+    // Each page's request holds the pager; the pager only a weak handle on
+    // itself, so a request that never answers (the app quits) frees it.
+    using Pager = std::function<void(const QString &)>;
+    auto page = std::make_shared<Pager>();
+    const std::weak_ptr<Pager> weak = page;
     const QPointer<Todoist> self(this);
-    *page = [self, path, query, collected, pages, page, done](const QString &cursor) {
-        if (!self)
+    *page = [self, path, query, collected, pages, weak, done](const QString &cursor) {
+        const std::shared_ptr<Pager> pager = weak.lock();
+        if (!self || !pager)
             return;
         QUrlQuery pageQuery = query;
         pageQuery.addQueryItem("limit", "200");
         if (!cursor.isEmpty())
             pageQuery.addQueryItem("cursor", cursor);
         ++*pages;
-        self->send("GET", path, pageQuery, {}, [collected, pages, page, done](const QJsonObject &result, const ApiError &error) {
+        self->send("GET", path, pageQuery, {}, [collected, pages, pager, done](const QJsonObject &result, const ApiError &error) {
             if (!error.isEmpty()) {
                 done({}, error);
-                *page = nullptr;
                 return;
             }
             for (const auto &item : result.value("results").toArray())
@@ -111,12 +116,10 @@ void Todoist::list(const QString &path, QUrlQuery query, ListCallback done) {
             // 500 pages of 200 is far more than any account holds; stop
             // rather than loop forever if a server keeps handing back cursors,
             // empty pages included.
-            if (!next.isEmpty() && *pages < 500) {
-                (*page)(next);
-            } else {
+            if (!next.isEmpty() && *pages < 500)
+                (*pager)(next);
+            else
                 done(*collected, {});
-                *page = nullptr;
-            }
         });
     };
     (*page)({});

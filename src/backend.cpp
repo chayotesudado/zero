@@ -205,6 +205,8 @@ void Backend::refresh() {
     if (!signedIn())
         return;
     const int generation = m_generation;
+    // Signing out (or in as someone else) meanwhile makes these answers stale.
+    const QString token = m_client.token();
     // Projects and sections first: the Inbox view needs the Inbox's id,
     // every view shows project names, and project views their sections.
     struct Answers {
@@ -213,7 +215,9 @@ void Backend::refresh() {
         int pending = 2;
     };
     auto answers = std::make_shared<Answers>();
-    auto settled = [this, generation, answers] {
+    auto settled = [this, generation, answers, token] {
+        if (m_client.token() != token)
+            return;
         if (!answers->projectsError.isEmpty()) {
             loadFailed(answers->projectsError.message);
             return;
