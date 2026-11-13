@@ -1,12 +1,14 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Every shortcut, toggled with ?.
 Rectangle {
     id: overlay
-    color: Qt.rgba(0, 0, 0, theme.light ? 0.35 : 0.7)
+    color: Qt.rgba(0, 0, 0, Theme.light ? 0.35 : 0.7)
 
     readonly property var shortcuts: [
         ["Space", qsTr("Complete the selected task")],
@@ -54,9 +56,9 @@ Rectangle {
         readonly property bool wide: parent.width >= 900
         width: Math.min(parent.width - 48, wide ? 900 : 460)
         height: Math.min(parent.height - 32, grid.implicitHeight + 80)
-        radius: theme.radius
-        color: theme.darkBackground
-        border.color: theme.lighterBackground
+        radius: Theme.radius
+        color: Theme.darkBackground
+        border.color: Theme.lighterBackground
 
         Label {
             id: title
@@ -66,7 +68,7 @@ Rectangle {
             text: qsTr("Keyboard shortcuts")
             font.pixelSize: 18
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         Flickable {
@@ -101,7 +103,7 @@ Rectangle {
                             ? (pair % 2 === 0 ? pair / 2 : half + (pair - 1) / 2) : pair
                         readonly property var entry: overlay.shortcuts[which] || ["", ""]
                         text: index % 2 === 0 ? entry[0] : entry[1]
-                        color: index % 2 === 0 ? theme.accent : theme.softForeground
+                        color: index % 2 === 0 ? Theme.accent : Theme.softForeground
                         font.pixelSize: 14
                         font.family: index % 2 === 0 ? "monospace" : ""
                         Layout.fillWidth: index % 2 === 1

@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Shown until Zero has a Todoist API token. The token is checked against
 // Todoist before it's saved.
@@ -14,7 +16,7 @@ Item {
     function focusField() { tokenField.forceActiveFocus() }
 
     Connections {
-        target: backend
+        target: Backend
         function onSignInFailed(message) { view.checking = false; view.message = message }
         function onSignedInChanged() { view.checking = false; view.message = ""; tokenField.text = "" }
     }
@@ -24,16 +26,16 @@ Item {
             return
         message = ""
         checking = true
-        backend.signIn(tokenField.text)
+        Backend.signIn(tokenField.text)
     }
 
     Rectangle {
         anchors.centerIn: parent
         width: Math.min(parent.width - 48, 480)
         height: column.implicitHeight + 64
-        radius: theme.radius
-        color: theme.darkBackground
-        border.color: theme.lighterBackground
+        radius: Theme.radius
+        color: Theme.darkBackground
+        border.color: Theme.lighterBackground
 
         ColumnLayout {
             id: column
@@ -45,16 +47,16 @@ Item {
                 text: qsTr("Connect Todoist")
                 font.pixelSize: 24
                 font.bold: true
-                color: theme.foreground
+                color: Theme.foreground
             }
 
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                color: theme.dimForeground
+                color: Theme.dimForeground
                 font.pixelSize: 14
                 textFormat: Text.StyledText
-                linkColor: theme.accent
+                linkColor: Theme.accent
                 text: qsTr("Paste your API token from Todoist under Settings → Integrations → Developer. It's kept in %1, readable only by you.")
                       .arg("<tt>~/.config/zero/token</tt>")
             }
@@ -62,7 +64,7 @@ Item {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                color: theme.accent
+                color: Theme.accent
                 font.pixelSize: 13
                 text: "app.todoist.com/app/settings/integrations/developer"
                 MouseArea {
@@ -79,7 +81,6 @@ Item {
                 placeholderText: qsTr("API token")
                 echoMode: TextInput.Password
                 enabled: !view.checking
-                Material.roundedScale: theme.radius
                 onAccepted: view.submit()
             }
 
@@ -90,7 +91,7 @@ Item {
                 // Server text, shown as-is rather than parsed as HTML.
                 textFormat: Text.PlainText
                 wrapMode: Text.Wrap
-                color: theme.red
+                color: Theme.red
                 font.pixelSize: 13
             }
 
@@ -99,13 +100,13 @@ Item {
                 Item { Layout.fillWidth: true }
                 BusyIndicator { running: view.checking; visible: running; implicitWidth: 32; implicitHeight: 32 }
                 Button {
+                    id: primaryButton
                     text: view.checking ? qsTr("Checking…") : qsTr("Connect")
                     highlighted: true
                     enabled: !view.checking && tokenField.text.trim() !== ""
-                    Material.roundedScale: theme.radius
                     contentItem: Label {
-                        text: parent.text
-                        color: theme.accentForeground
+                        text: primaryButton.text
+                        color: Theme.accentForeground
                         font.pixelSize: 14
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
@@ -114,9 +115,9 @@ Item {
                     background: Rectangle {
                         implicitWidth: 110
                         implicitHeight: 38
-                        radius: Math.min(6, theme.radius)
-                        color: theme.accent
-                        opacity: parent.enabled ? (parent.down ? 0.8 : 1) : 0.35
+                        radius: Math.min(6, Theme.radius)
+                        color: Theme.accent
+                        opacity: primaryButton.enabled ? (primaryButton.down ? 0.8 : 1) : 0.35
                     }
                     onClicked: view.submit()
                 }

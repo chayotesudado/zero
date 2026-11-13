@@ -473,13 +473,13 @@ private slots:
         // A completion undoes without asking.
         backend.complete("a");
         settle();
-        QVERIFY(backend.undoDeletes().isEmpty());
+        QVERIFY(backend.undoDeletes().toMap().isEmpty());
 
         // An add says which task undoing it would delete.
         backend.add("Milk");
         settle();
-        QCOMPARE(backend.undoDeletes().value("id").toString(), QString("new"));
-        QCOMPARE(backend.undoDeletes().value("text").toString(), QString("Milk"));
+        QCOMPARE(backend.undoDeletes().toMap().value("id").toString(), QString("new"));
+        QCOMPARE(backend.undoDeletes().toMap().value("text").toString(), QString("Milk"));
     }
 
     void backendRedoesAnAddWhereItWent() {
@@ -1084,7 +1084,7 @@ private slots:
         backend.showView("inbox");
         QTRY_COMPARE(backend.tasks().size(), 2);
         auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
-        auto shown = [&] { return backend.taskById("a"); };
+        auto shown = [&] { return backend.taskById("a").toMap(); };
 
         // Changed at once, and sent as Todoist counts priority.
         server.requests.clear();
@@ -1117,7 +1117,7 @@ private slots:
         backend.editTask("a", {{"content", "Lost"}});
         settle();
         QCOMPARE(shown().value("content").toString(), QString("Call mum"));
-        QCOMPARE(backend.taskById("b").value("priority").toInt(), 4);
+        QCOMPARE(backend.taskById("b").toMap().value("priority").toInt(), 4);
         QVERIFY(backend.error().contains("Nope"));
     }
 
@@ -1368,7 +1368,7 @@ private slots:
         for (const auto &entry : backend.subtasksOf("p"))
             ids << entry.toMap().value("id").toString();
         QCOMPARE(ids, QStringList({"d", "c"}));
-        QCOMPARE(backend.taskById("c").value("parentId").toString(), QString("p"));
+        QCOMPARE(backend.taskById("c").toMap().value("parentId").toString(), QString("p"));
 
         // They can be completed and edited like any task.
         backend.complete("d");
@@ -1381,7 +1381,7 @@ private slots:
         QCOMPARE(server.requests.first().path(), QByteArray("/tasks/c"));
 
         backend.forgetSubtasks();
-        QVERIFY(backend.taskById("c").isEmpty());
+        QVERIFY(backend.taskById("c").toMap().isEmpty());
         QVERIFY(backend.subtasksOf("p").isEmpty());
     }
 
@@ -1664,9 +1664,9 @@ private slots:
         QVERIFY(QFile::setPermissions(command, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         write(response, "{\"int\":0}");
         Theme theme(dir.path(), nullptr, command);
-        QCOMPARE(theme.radius(), 0);
+        QCOMPARE(theme.radius(), 0.0);
         write(response, "{\"int\":6}");
-        QTRY_COMPARE(theme.radius(), 6);
+        QTRY_COMPARE(theme.radius(), 6.0);
     }
 
     void translatorFallsBackToEnglish() {

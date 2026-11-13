@@ -110,7 +110,8 @@ public:
     Q_INVOKABLE void dropProject(const QString &projectId, int index);
     // A task the app knows of, the list's or a loaded subtask, in the shape
     // rows have; empty when it isn't known.
-    Q_INVOKABLE QVariantMap taskById(const QString &taskId) const;
+    // Maps, as QVariant so QML tooling reads them as plain JS objects.
+    Q_INVOKABLE QVariant taskById(const QString &taskId) const;
     // A task's direct subtasks, in Todoist's order: the ones in the list on
     // screen, and the ones loadSubtasks fetched (a dated list doesn't show
     // them all). Changes announce subtasksChanged.
@@ -137,7 +138,7 @@ public:
     // Undoing an add deletes the task from Todoist for good, so the UI asks
     // first: when the next undo would, this is {id, text} of that task, and
     // empty otherwise.
-    Q_INVOKABLE QVariantMap undoDeletes() const;
+    Q_INVOKABLE QVariant undoDeletes() const;
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void dismissError();

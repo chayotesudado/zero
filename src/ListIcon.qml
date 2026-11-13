@@ -1,5 +1,7 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Shapes
+import Zero
 
 // Line icons for the fixed lists: an in-tray for the Inbox, a calendar with
 // today's date in it for Today, and a calendar of days for Upcoming. Paths
@@ -7,7 +9,7 @@ import QtQuick.Shapes
 Item {
     id: icon
     property string kind: "inbox"
-    property color color: theme.foreground
+    property color color: Theme.foreground
     property int day: new Date().getDate()
 
     implicitWidth: 18
@@ -46,7 +48,7 @@ Item {
         height: icon.height * 12 / 24
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        text: (translator.language, icon.day.toLocaleString(Qt.locale(), 'f', 0))
+        text: icon.day.toLocaleString(Translator.locale, 'f', 0)
         color: icon.color
         font.pixelSize: Math.round(icon.height * 0.42)
         font.bold: true

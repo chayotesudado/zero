@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Recolors a project; the change is saved to Todoist as soon as a color is
 // picked, so this just closes on Enter or Esc.
@@ -22,9 +24,8 @@ Popup {
     focus: true
     anchors.centerIn: Overlay.overlay
     padding: 20
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     ColumnLayout {
         spacing: 14
@@ -36,12 +37,12 @@ Popup {
             elide: Text.ElideRight
             font.pixelSize: 16
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         ColorSwatches {
             id: swatches
-            onPicked: function(name) { if (dialog.project) backend.setProjectColor(dialog.project.id, name) }
+            onPicked: function(name) { if (dialog.project) Backend.setProjectColor(dialog.project.id, name) }
             onAccepted: dialog.close()
         }
     }

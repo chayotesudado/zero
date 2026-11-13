@@ -1,8 +1,10 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Controls.Basic as Basic
 import QtQuick.Layouts
+import Zero
 import "Dates.js" as Dates
 
 // A task opened up: its title and description to edit, its priority, date,
@@ -19,14 +21,14 @@ Popup {
     signal moveRequested(var task)
     signal deleteRequested(var task)
 
-    readonly property color priorityColor: Dates.priorityColor(task.priority || 4, theme)
+    readonly property color priorityColor: Dates.priorityColor(task.priority || 4, Theme)
 
     function openFor(id) {
         if (!id) return
         if (visible) save()
         taskId = id
         reload(true)
-        backend.loadSubtasks(id)
+        Backend.loadSubtasks(id)
         open()
         // Nothing is typed into until it's clicked, so Esc closes at once.
         body.forceActiveFocus()
@@ -35,11 +37,11 @@ Popup {
     // Takes in the task as the backend has it; fields being typed in keep
     // what's typed.
     function reload(all) {
-        var t = backend.taskById(taskId)
+        var t = Backend.taskById(taskId)
         if (!t.id) return false
         task = t
-        subtasks = backend.subtasksOf(taskId)
-        parentTask = t.parentId ? backend.taskById(t.parentId) : ({})
+        subtasks = Backend.subtasksOf(taskId)
+        parentTask = t.parentId ? Backend.taskById(t.parentId) : ({})
         if (all || !titleField.activeFocus) titleField.text = t.content
         if (all || !descriptionField.activeFocus) descriptionField.text = t.description
         return true
@@ -47,17 +49,17 @@ Popup {
 
     function save() {
         if (!task.id) return
-        backend.editTask(task.id, { content: titleField.text, description: descriptionField.text })
+        Backend.editTask(task.id, { content: titleField.text, description: descriptionField.text })
     }
 
     function complete() {
         save()
-        backend.complete(task.id)
+        Backend.complete(task.id)
         close()
     }
 
     Connections {
-        target: backend
+        target: Backend
         function onTasksChanged() { if (detail.visible) Qt.callLater(detail.refreshOrClose) }
         function onSubtasksChanged() { if (detail.visible) Qt.callLater(detail.refreshOrClose) }
     }
@@ -68,7 +70,7 @@ Popup {
 
     onClosed: {
         save()
-        backend.forgetSubtasks()
+        Backend.forgetSubtasks()
         taskId = ""
         task = ({})
     }
@@ -79,9 +81,8 @@ Popup {
     width: Math.min(620, parent ? parent.width - 48 : 620)
     height: Math.min(implicitHeight, parent ? parent.height - 48 : implicitHeight)
     padding: 22
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     contentItem: Flickable {
         id: body
@@ -104,7 +105,7 @@ Popup {
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 font.pixelSize: 12
-                color: parentHover.hovered ? theme.accent : theme.dimForeground
+                color: parentHover.hovered ? Theme.accent : Theme.dimForeground
                 HoverHandler { id: parentHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: detail.openFor(detail.parentTask.id) }
             }
@@ -142,18 +143,18 @@ Popup {
                     Layout.fillWidth: true
                     font.pixelSize: 17
                     font.bold: true
-                    color: theme.foreground
-                    selectionColor: theme.selection
-                    selectedTextColor: theme.foreground
+                    color: Theme.foreground
+                    selectionColor: Theme.selection
+                    selectedTextColor: Theme.foreground
                     placeholderText: qsTr("Task name")
-                    placeholderTextColor: theme.muted
+                    placeholderTextColor: Theme.muted
                     leftPadding: 8
                     rightPadding: 8
                     background: Rectangle {
-                        radius: Math.min(6, theme.radius)
-                        color: titleField.activeFocus ? theme.tint(0.04) : "transparent"
+                        radius: Math.min(6, Theme.radius)
+                        color: titleField.activeFocus ? Theme.tint(0.04) : "transparent"
                         border.width: 1
-                        border.color: titleField.activeFocus ? theme.accent : "transparent"
+                        border.color: titleField.activeFocus ? Theme.accent : "transparent"
                     }
                     onEditingFinished: detail.save()
                     // Enter keeps the name and leaves the field.
@@ -170,17 +171,17 @@ Popup {
                 Layout.minimumHeight: 64
                 wrapMode: TextEdit.Wrap
                 font.pixelSize: 13
-                color: theme.softForeground
-                selectionColor: theme.selection
-                selectedTextColor: theme.foreground
+                color: Theme.softForeground
+                selectionColor: Theme.selection
+                selectedTextColor: Theme.foreground
                 placeholderText: qsTr("Description")
-                placeholderTextColor: theme.muted
+                placeholderTextColor: Theme.muted
                 padding: 8
                 background: Rectangle {
-                    radius: Math.min(6, theme.radius)
-                    color: descriptionField.activeFocus ? theme.tint(0.04) : "transparent"
+                    radius: Math.min(6, Theme.radius)
+                    color: descriptionField.activeFocus ? Theme.tint(0.04) : "transparent"
                     border.width: 1
-                    border.color: descriptionField.activeFocus ? theme.accent : theme.lighterBackground
+                    border.color: descriptionField.activeFocus ? Theme.accent : Theme.lighterBackground
                 }
                 onActiveFocusChanged: if (!activeFocus) detail.save()
                 Keys.onEscapePressed: detail.close()
@@ -203,7 +204,7 @@ Popup {
                             required property int index
                             readonly property int level: index + 1
                             readonly property bool chosen: detail.task.priority === level
-                            readonly property color tone: Dates.priorityColor(level, theme)
+                            readonly property color tone: Dates.priorityColor(level, Theme)
                             text: "P" + level
                             font.pixelSize: 12
                             font.bold: chosen
@@ -211,15 +212,15 @@ Popup {
                             padding: 4
                             leftPadding: 10
                             rightPadding: 10
-                            color: chosen ? theme.textOn(tone) : tone
+                            color: chosen ? Theme.textOn(tone) : tone
                             background: Rectangle {
-                                radius: Math.min(4, theme.radius)
+                                radius: Math.min(4, Theme.radius)
                                 color: chip.chosen ? chip.tone : chipHover.hovered ? Qt.alpha(chip.tone, 0.15) : "transparent"
                                 border.width: 1
                                 border.color: chip.tone
                             }
                             HoverHandler { id: chipHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: backend.setPriority(detail.task.id, chip.level) }
+                            TapHandler { onTapped: Backend.setPriority(detail.task.id, chip.level) }
                             ToolTip.visible: chipHover.hovered
                             ToolTip.text: qsTr("Ctrl+%1").arg(chip.level)
                             ToolTip.delay: 400
@@ -231,11 +232,11 @@ Popup {
                 RowLayout {
                     spacing: 8
                     Label {
-                        readonly property string due: (translator.language, Dates.dueLabel(detail.task, Qt.locale()))
+                        readonly property string due: Dates.dueLabel(detail.task, Translator.locale)
                         text: due !== "" ? (detail.task.recurring ? "↻ " : "") + due : qsTr("No date")
                         textFormat: Text.PlainText
                         font.pixelSize: 13
-                        color: detail.task.overdue ? theme.red : due !== "" ? theme.foreground : theme.dimForeground
+                        color: detail.task.overdue ? Theme.red : due !== "" ? Theme.foreground : Theme.dimForeground
                     }
                     Action2 { text: qsTr("Change (D)"); onClicked: detail.scheduleRequested(detail.task) }
                 }
@@ -249,7 +250,7 @@ Popup {
                         elide: Text.ElideRight
                         Layout.maximumWidth: 320
                         font.pixelSize: 13
-                        color: theme.foreground
+                        color: Theme.foreground
                     }
                     Action2 { text: qsTr("Move (M)"); onClicked: detail.moveRequested(detail.task) }
                 }
@@ -266,7 +267,7 @@ Popup {
                     text: qsTr("Subtasks")
                     font.pixelSize: 12
                     font.bold: true
-                    color: theme.softForeground
+                    color: Theme.softForeground
                     bottomPadding: 4
                 }
 
@@ -277,12 +278,12 @@ Popup {
                         required property var modelData
                         Layout.fillWidth: true
                         implicitHeight: 30
-                        readonly property color tone: Dates.priorityColor(modelData.priority, theme)
+                        readonly property color tone: Dates.priorityColor(modelData.priority, Theme)
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: Math.min(6, theme.radius)
-                            color: subHover.hovered ? theme.tint(0.04) : "transparent"
+                            radius: Math.min(6, Theme.radius)
+                            color: subHover.hovered ? Theme.tint(0.04) : "transparent"
                         }
                         HoverHandler { id: subHover; cursorShape: Qt.PointingHandCursor }
                         // Opens the subtask, unless the tap was on its circle,
@@ -308,7 +309,7 @@ Popup {
                                 border.width: 2
                                 border.color: sub.tone
                                 HoverHandler { id: subCircle; cursorShape: Qt.PointingHandCursor }
-                                TapHandler { onTapped: backend.complete(sub.modelData.id) }
+                                TapHandler { onTapped: Backend.complete(sub.modelData.id) }
                             }
                             Label {
                                 Layout.fillWidth: true
@@ -316,14 +317,14 @@ Popup {
                                 textFormat: Text.PlainText
                                 elide: Text.ElideRight
                                 font.pixelSize: 13
-                                color: theme.foreground
+                                color: Theme.foreground
                             }
                             Label {
-                                readonly property string due: (translator.language, Dates.dueLabel(sub.modelData, Qt.locale()))
+                                readonly property string due: Dates.dueLabel(sub.modelData, Translator.locale)
                                 visible: due !== ""
                                 text: due
                                 font.pixelSize: 11
-                                color: sub.modelData.overdue ? theme.red : theme.dimForeground
+                                color: sub.modelData.overdue ? Theme.red : Theme.dimForeground
                             }
                         }
                     }
@@ -340,20 +341,20 @@ Popup {
                     bottomPadding: 0
                     verticalAlignment: TextInput.AlignVCenter
                     font.pixelSize: 13
-                    color: theme.foreground
+                    color: Theme.foreground
                     placeholderText: qsTr("Add a subtask (quick add: dates and p1 work)")
-                    placeholderTextColor: theme.muted
-                    selectionColor: theme.selection
-                    selectedTextColor: theme.foreground
+                    placeholderTextColor: Theme.muted
+                    selectionColor: Theme.selection
+                    selectedTextColor: Theme.foreground
                     background: Rectangle {
-                        radius: Math.min(6, theme.radius)
-                        color: subtaskField.activeFocus ? theme.tint(0.04) : "transparent"
+                        radius: Math.min(6, Theme.radius)
+                        color: subtaskField.activeFocus ? Theme.tint(0.04) : "transparent"
                         border.width: 1
-                        border.color: subtaskField.activeFocus ? theme.accent : theme.lighterBackground
+                        border.color: subtaskField.activeFocus ? Theme.accent : Theme.lighterBackground
                     }
                     onAccepted: {
                         if (text.trim() === "") return
-                        backend.add(text, detail.task.id)
+                        Backend.add(text, detail.task.id)
                         text = ""
                     }
                     Keys.onEscapePressed: detail.close()
@@ -372,7 +373,7 @@ Popup {
                 Label {
                     text: qsTr("Esc to close")
                     font.pixelSize: 11
-                    color: theme.muted
+                    color: Theme.muted
                 }
             }
         }
@@ -380,7 +381,7 @@ Popup {
 
     component FieldLabel: Label {
         font.pixelSize: 12
-        color: theme.dimForeground
+        color: Theme.dimForeground
         Layout.alignment: Qt.AlignVCenter
     }
 
@@ -392,10 +393,10 @@ Popup {
         leftPadding: 8
         rightPadding: 8
         font.pixelSize: 12
-        color: actionHover.hovered ? (danger ? theme.red : theme.accent) : theme.dimForeground
+        color: actionHover.hovered ? (danger ? Theme.red : Theme.accent) : Theme.dimForeground
         background: Rectangle {
-            radius: Math.min(4, theme.radius)
-            color: actionHover.hovered ? theme.tint(0.06) : "transparent"
+            radius: Math.min(4, Theme.radius)
+            color: actionHover.hovered ? Theme.tint(0.06) : "transparent"
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }

@@ -5,14 +5,13 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
-#include <QQmlContext>
 #include <QQuickStyle>
 #include <QUrl>
 
 #include "backend.h"
 #include "cli.h"
 #include "credentials.h"
-#include "pixelart.h"
+#include "qmlsingletons.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -54,12 +53,12 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Backend backend;
 
-    qmlRegisterType<PixelArt>("Zero", 1, 0, "PixelArt");
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
-    engine.rootContext()->setContextProperty("translator", &translator);
-    engine.rootContext()->setContextProperty("theme", &theme);
-    engine.rootContext()->setContextProperty("backend", &backend);
+    // QML's Theme, Backend and Translator singletons are these.
+    ThemeSingleton::instance = &theme;
+    BackendSingleton::instance = &backend;
+    TranslatorSingleton::instance = &translator;
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

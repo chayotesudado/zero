@@ -7,4 +7,5 @@ cd "$ROOT/build/tests"
 
 qmake6 "$ROOT/tests/zero_tests.pro"
 make -j"$(nproc)"
+"$ROOT/bin/compiledb" || true
 QT_QPA_PLATFORM=offscreen ./zero_tests

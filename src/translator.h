@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QJsonValue>
 #include <QLocale>
+#include <QLocale>
 #include <QTimer>
 #include <QTranslator>
 
@@ -16,12 +17,16 @@
 class Translator : public QTranslator {
     Q_OBJECT
     Q_PROPERTY(QString language READ language NOTIFY changed)
+    // The locale dates and numbers are formatted in, for QML: bindings that
+    // use it update when the language changes, where Qt.locale() wouldn't.
+    Q_PROPERTY(QLocale locale READ locale NOTIFY changed)
 
 public:
     explicit Translator(const QString &languageFile = {}, const QString &catalogDirectory = ":/i18n",
                         QObject *parent = nullptr);
 
     QString language() const { return m_language; }
+    QLocale locale() const { return QLocale(); }
     bool isEmpty() const override { return m_strings.isEmpty(); }
     QString translate(const char *context, const char *sourceText, const char *disambiguation = nullptr,
                       int n = -1) const override;

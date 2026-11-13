@@ -1,7 +1,8 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
-import QtQuick.Layouts
+import Zero
 
 // Todoist's 20 project colors, so a color picked here is the same one
 // Todoist shows. Arrow keys move through them once the grid has focus;
@@ -14,12 +15,10 @@ FocusScope {
     signal accepted()
 
     readonly property int columns: 10
-    readonly property int count: backend.colors.length
-    readonly property int selectedIndex: {
-        for (var i = 0; i < backend.colors.length; i++)
-            if (backend.colors[i].name === selected) return i
-        return 0
-    }
+    // Each {name, hex}, in Todoist's order.
+    readonly property var colors: Backend.colors
+    readonly property int count: colors.length
+    readonly property int selectedIndex: Math.max(0, colors.findIndex(c => c.name === selected))
 
     // Todoist's own names for its colors.
     function label(name) {
@@ -36,7 +35,7 @@ FocusScope {
 
     function step(delta) {
         var i = Math.max(0, Math.min(count - 1, selectedIndex + delta))
-        selected = backend.colors[i].name
+        selected = colors[i].name
         picked(selected)
     }
 
@@ -57,8 +56,9 @@ FocusScope {
         spacing: 8
 
         Repeater {
-            model: backend.colors
+            model: swatches.colors
             Item {
+                id: swatch
                 required property var modelData
                 readonly property bool chosen: modelData.name === swatches.selected
                 width: 30
@@ -70,22 +70,22 @@ FocusScope {
                     radius: width / 2
                     color: "transparent"
                     border.width: 2
-                    border.color: chosen ? (swatches.activeFocus ? theme.accent : theme.foreground) : "transparent"
+                    border.color: swatch.chosen ? (swatches.activeFocus ? Theme.accent : Theme.foreground) : "transparent"
                 }
                 Rectangle {
                     anchors.centerIn: parent
                     width: 22
                     height: 22
                     radius: 11
-                    color: modelData.hex
+                    color: swatch.modelData.hex
                     scale: swatchHover.hovered ? 1.12 : 1
                     Behavior on scale { NumberAnimation { duration: 90 } }
                 }
                 HoverHandler { id: swatchHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
                     onTapped: {
-                        swatches.selected = modelData.name
-                        swatches.picked(modelData.name)
+                        swatches.selected = swatch.modelData.name
+                        swatches.picked(swatch.modelData.name)
                         swatches.forceActiveFocus()
                     }
                 }
@@ -98,7 +98,7 @@ FocusScope {
         anchors.top: grid.bottom
         anchors.topMargin: 8
         text: swatches.label(swatches.selected)
-        color: theme.dimForeground
+        color: Theme.dimForeground
         font.pixelSize: 13
     }
 }

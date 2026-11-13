@@ -974,11 +974,11 @@ void Backend::undoFailed(const Step &step, const ApiError &error) {
     emit historyChanged();
 }
 
-QVariantMap Backend::undoDeletes() const {
+QVariant Backend::undoDeletes() const {
     if (m_undo.isEmpty() || m_undo.last().kind != Step::Added)
-        return {};
+        return QVariantMap();
     const Step &step = m_undo.last();
-    return {{"id", step.taskId}, {"text", step.task.content.isEmpty() ? step.text : step.task.content}};
+    return QVariantMap{{"id", step.taskId}, {"text", step.task.content.isEmpty() ? step.text : step.task.content}};
 }
 
 void Backend::undo() {
@@ -1692,10 +1692,10 @@ void Backend::applyReorder(const Step &step, bool forward, std::function<void(co
 
 // ------------------------------------------------------------ subtasks
 
-QVariantMap Backend::taskById(const QString &taskId) const {
+QVariant Backend::taskById(const QString &taskId) const {
     const Task *task = findTask(taskId);
     if (!task)
-        return {};
+        return QVariantMap();
     QVariantMap map = Tasks::toVariant(*task, QDateTime::currentDateTime(), m_projectsById, m_depths.value(taskId));
     // Where it lives, as the move picker names it.
     QString path = m_projectsById.value(task->projectId).inbox ? tr("Inbox") : m_projectsById.value(task->projectId).name;

@@ -5,6 +5,7 @@
 #include <QPoint>
 #include <QQuickPaintedItem>
 #include <QString>
+#include <QtQml/qqmlregistration.h>
 
 // Zero's pixel art, drawn rather than loaded, so it takes the theme's colors:
 // the logo (the check and ZERO) or the check alone. Each is a bright face
@@ -13,6 +14,7 @@
 // Pixels are a whole multiple of the item's pixels, so they stay sharp.
 class PixelArt : public QQuickPaintedItem {
     Q_OBJECT
+    QML_ELEMENT
     // "lockup" (the check and ZERO) or "check".
     Q_PROPERTY(QString art READ art WRITE setArt NOTIFY artChanged)
     Q_PROPERTY(int pixelScale READ pixelScale WRITE setPixelScale NOTIFY artChanged)
