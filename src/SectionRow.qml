@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // A section's heading in a project's list. It can be selected like a task:
 // N then adds into it, Enter renames it, and Delete deletes it.
@@ -23,10 +25,10 @@ Item {
         anchors.leftMargin: 4
         anchors.rightMargin: 4
         anchors.topMargin: 8
-        radius: Math.min(6, theme.radius)
+        radius: Math.min(6, Theme.radius)
         // As Omarchy's menus mark the selected row: a foreground tint and the
         // title in the accent, with no outline.
-        color: row.selected ? theme.tint(0.08) : hover.hovered ? theme.tint(0.035) : "transparent"
+        color: row.selected ? Theme.tint(0.08) : hover.hovered ? Theme.tint(0.035) : "transparent"
     }
 
     HoverHandler { id: hover }
@@ -69,7 +71,7 @@ Item {
             elide: Text.ElideRight
             font.pixelSize: 14
             font.bold: true
-            color: row.selected ? theme.accent : theme.foreground
+            color: row.selected ? Theme.accent : Theme.foreground
         }
         RowLayout {
             id: buttons
@@ -89,7 +91,7 @@ Item {
         anchors.leftMargin: 16
         anchors.rightMargin: 16
         height: 1
-        color: theme.lighterBackground
+        color: Theme.lighterBackground
     }
 
     component HeadingAction: Label {
@@ -100,10 +102,10 @@ Item {
         leftPadding: 8
         rightPadding: 8
         font.pixelSize: 11
-        color: actionHover.hovered ? (danger ? theme.red : theme.accent) : theme.dimForeground
+        color: actionHover.hovered ? (danger ? Theme.red : Theme.accent) : Theme.dimForeground
         background: Rectangle {
-            radius: Math.min(4, theme.radius)
-            color: actionHover.hovered ? theme.tint(0.06) : "transparent"
+            radius: Math.min(4, Theme.radius)
+            color: actionHover.hovered ? Theme.tint(0.06) : "transparent"
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }

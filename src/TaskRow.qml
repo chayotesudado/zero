@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 import "Dates.js" as Dates
 
 // One task: the priority-colored circle that completes it, its text, and
@@ -26,12 +28,12 @@ Item {
 
     readonly property bool completing: tick.running || done
     property bool done: false
-    readonly property color priorityColor: Dates.priorityColor(task.priority, theme)
+    readonly property color priorityColor: Dates.priorityColor(task.priority, Theme)
     // In a list grouped by day (Today, Upcoming), the heading says the day,
     // so a task there shows only its time; an overdue one keeps its date.
     property bool groupedByDay: false
-    readonly property string due: (translator.language,
-        groupedByDay && task.group !== "overdue" ? Dates.timeLabel(task, Qt.locale()) : Dates.dueLabel(task, Qt.locale()))
+    readonly property string due: groupedByDay && task.group !== "overdue"
+        ? Dates.timeLabel(task, Translator.locale) : Dates.dueLabel(task, Translator.locale)
     readonly property string dueText: task.recurring ? (due !== "" ? "↻ " + due : "↻") : due
 
     implicitHeight: Math.max(40, content.implicitHeight + 16)
@@ -40,10 +42,10 @@ Item {
         anchors.fill: parent
         anchors.leftMargin: 4
         anchors.rightMargin: 4
-        radius: Math.min(6, theme.radius)
+        radius: Math.min(6, Theme.radius)
         // As Omarchy's menus mark the selected row: a foreground tint and the
         // title in the accent, with no outline.
-        color: row.selected ? theme.tint(0.08) : hover.hovered ? theme.tint(0.035) : "transparent"
+        color: row.selected ? Theme.tint(0.08) : hover.hovered ? Theme.tint(0.035) : "transparent"
     }
 
     HoverHandler { id: hover }
@@ -111,7 +113,7 @@ Item {
             Text {
                 anchors.centerIn: parent
                 text: "✓"
-                color: row.completing ? theme.textOn(row.priorityColor) : row.priorityColor
+                color: row.completing ? Theme.textOn(row.priorityColor) : row.priorityColor
                 opacity: row.completing || circleHover.hovered ? 1 : 0
                 font.pixelSize: 10
                 font.bold: true
@@ -134,7 +136,7 @@ Item {
                 wrapMode: Text.Wrap
                 font.pixelSize: 13
                 font.strikeout: row.completing
-                color: row.selected ? theme.accent : theme.foreground
+                color: row.selected ? Theme.accent : Theme.foreground
             }
 
             Label {
@@ -144,7 +146,7 @@ Item {
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 font.pixelSize: 12
-                color: theme.dimForeground
+                color: Theme.dimForeground
             }
 
             RowLayout {
@@ -156,7 +158,7 @@ Item {
                     text: row.dueText
                     textFormat: Text.PlainText
                     font.pixelSize: 11
-                    color: row.task.overdue ? theme.red : row.task.dayOffset === 0 ? theme.accent : theme.dimForeground
+                    color: row.task.overdue ? Theme.red : row.task.dayOffset === 0 ? Theme.accent : Theme.dimForeground
                 }
 
                 Repeater {
@@ -166,7 +168,7 @@ Item {
                         text: "@" + modelData
                         textFormat: Text.PlainText
                         font.pixelSize: 11
-                        color: theme.dimForeground
+                        color: Theme.dimForeground
                     }
                 }
             }
@@ -193,7 +195,7 @@ Item {
                 text: row.task.projectName || ""
                 textFormat: Text.PlainText
                 font.pixelSize: 11
-                color: theme.dimForeground
+                color: Theme.dimForeground
                 elide: Text.ElideRight
                 Layout.maximumWidth: 160
             }
@@ -209,10 +211,10 @@ Item {
         leftPadding: 8
         rightPadding: 8
         font.pixelSize: 11
-        color: actionHover.hovered ? (danger ? theme.red : theme.accent) : theme.dimForeground
+        color: actionHover.hovered ? (danger ? Theme.red : Theme.accent) : Theme.dimForeground
         background: Rectangle {
-            radius: Math.min(4, theme.radius)
-            color: actionHover.hovered ? theme.tint(0.06) : "transparent"
+            radius: Math.min(4, Theme.radius)
+            color: actionHover.hovered ? Theme.tint(0.06) : "transparent"
         }
         HoverHandler { id: actionHover; cursorShape: Qt.PointingHandCursor }
         TapHandler { onTapped: action.clicked() }

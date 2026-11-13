@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Changes a task's due date: a quick pick, or anything Todoist understands
 // typed in ("fri 9am", "every other monday", "no date").
@@ -27,7 +29,7 @@ Popup {
     }
 
     function apply(dueString) {
-        if (task && dueString.trim() !== "") backend.schedule(task.id, dueString)
+        if (task && dueString.trim() !== "") Backend.schedule(task.id, dueString)
         close()
     }
 
@@ -36,9 +38,8 @@ Popup {
     anchors.centerIn: Overlay.overlay
     width: Math.min(440, parent ? parent.width - 48 : 440)
     padding: 20
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     ColumnLayout {
         anchors.fill: parent
@@ -51,14 +52,13 @@ Popup {
             elide: Text.ElideRight
             font.pixelSize: 16
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         TextField {
             id: field
             Layout.fillWidth: true
             placeholderText: qsTr("Like “fri 5pm” or “every monday”")
-            Material.roundedScale: theme.radius
             onAccepted: picker.apply(text)
         }
 
@@ -71,7 +71,6 @@ Popup {
                     required property var modelData
                     text: modelData[0]
                     flat: true
-                    Material.roundedScale: theme.radius
                     onClicked: picker.apply(modelData[1])
                 }
             }

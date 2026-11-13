@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Asks before deleting a project, saying what goes with it: Todoist deletes
 // its tasks and sub-projects too, and that can't be undone from here.
@@ -19,11 +21,11 @@ Popup {
         subprojects = []
         open()
         cancelButton.forceActiveFocus()
-        backend.inspectProject(p.id)
+        Backend.inspectProject(p.id)
     }
 
     Connections {
-        target: backend
+        target: Backend
         function onProjectContents(projectId, count, names) {
             if (dialog.project && projectId === dialog.project.id) {
                 dialog.taskCount = count
@@ -37,9 +39,8 @@ Popup {
     anchors.centerIn: Overlay.overlay
     width: Math.min(440, parent ? parent.width - 48 : 440)
     padding: 20
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     ColumnLayout {
         anchors.fill: parent
@@ -52,13 +53,13 @@ Popup {
             elide: Text.ElideRight
             font.pixelSize: 16
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         Label {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            color: theme.softForeground
+            color: Theme.softForeground
             font.pixelSize: 14
             text: dialog.taskCount === -2 ? qsTr("Counting its tasks…")
                 : dialog.taskCount === -1 ? qsTr("Its tasks will be deleted with it.")
@@ -71,7 +72,7 @@ Popup {
             visible: dialog.subprojects.length > 0
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
-            color: theme.softForeground
+            color: Theme.softForeground
             font.pixelSize: 14
             text: qsTr("So will its sub-projects: %1.").arg(dialog.subprojects.join(", "))
         }
@@ -79,7 +80,7 @@ Popup {
         Label {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            color: theme.red
+            color: Theme.red
             font.pixelSize: 13
             text: qsTr("This can't be undone.")
         }
@@ -95,12 +96,13 @@ Popup {
                 Keys.onReturnPressed: dialog.close()
             }
             Button {
+                id: primaryButton
                 text: qsTr("Delete")
                 highlighted: true
                 enabled: dialog.taskCount !== -2
                 contentItem: Label {
-                    text: parent.text
-                    color: theme.textOn(theme.red)
+                    text: primaryButton.text
+                    color: Theme.textOn(Theme.red)
                     font.pixelSize: 14
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
@@ -109,12 +111,11 @@ Popup {
                 background: Rectangle {
                     implicitWidth: 96
                     implicitHeight: 38
-                    radius: Math.min(6, theme.radius)
-                    color: theme.red
-                    opacity: parent.enabled ? (parent.down ? 0.8 : 1) : 0.35
+                    radius: Math.min(6, Theme.radius)
+                    color: Theme.red
+                    opacity: primaryButton.enabled ? (primaryButton.down ? 0.8 : 1) : 0.35
                 }
-                Material.roundedScale: theme.radius
-                onClicked: { backend.deleteProject(dialog.project.id); dialog.close() }
+                onClicked: { Backend.deleteProject(dialog.project.id); dialog.close() }
             }
         }
     }

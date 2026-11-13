@@ -7,5 +7,8 @@ cd "$ROOT/build"
 
 qmake6 "$ROOT/zero.pro"
 make -j"$(nproc)"
+"$ROOT/bin/compiledb" || true
+# Where qmlls (QML in Zed and other editors) finds the Zero module.
+printf '[General]\nbuildDir="%s"\nimportPaths="%s"\nno-cmake-calls=true\n' "$ROOT/build" "$ROOT/build/qml" > "$ROOT/.qmlls.ini"
 
 echo "Built $ROOT/build/zero"

@@ -11,7 +11,8 @@ class Theme : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString accent READ accent NOTIFY changed)
     Q_PROPERTY(QString accentForeground READ accentForeground NOTIFY changed)
-    Q_PROPERTY(int radius READ radius NOTIFY changed)
+    // Hyprland's corner rounding, in pixels; a real, as QML radii are.
+    Q_PROPERTY(double radius READ radius NOTIFY changed)
     // The rest of the Omarchy theme's palette (colors.toml), so the whole
     // window follows the theme, not just its accent.
     Q_PROPERTY(bool light READ light NOTIFY changed)
@@ -34,7 +35,7 @@ public:
 
     QString accent() const { return m_accent; }
     QString accentForeground() const;
-    int radius() const { return m_radius; }
+    double radius() const { return m_radius; }
 
     bool light() const { return m_palette.value("mode") == "light"; }
     QColor background() const { return color("background"); }

@@ -1,8 +1,10 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Controls.Basic as Basic
 import QtQuick.Layouts
+import Zero
 import "Dates.js" as Dates
 
 ApplicationWindow {
@@ -12,20 +14,41 @@ ApplicationWindow {
     minimumWidth: 360
     minimumHeight: 460
     visible: true
-    title: backend.signedIn && backend.viewName ? qsTr("%1 — Zero").arg(backend.viewName) : "Zero"
-    color: theme.background
+    title: Backend.signedIn && Backend.viewName ? qsTr("%1 — Zero").arg(Backend.viewName) : "Zero"
+    color: Theme.background
 
-    Material.theme: theme.light ? Material.Light : Material.Dark
-    Material.accent: theme.accent
-    Material.foreground: theme.foreground
-    Material.background: theme.background
-    Material.roundedScale: theme.radius
+    Material.theme: Theme.light ? Material.Light : Material.Dark
+    Material.accent: Theme.accent
+    Material.foreground: Theme.foreground
+    Material.background: Theme.background
+    // Material's corners as near as its scale gets to Hyprland's rounding;
+    // controls drawn here use Theme.radius itself.
+    Material.roundedScale: Theme.radius >= 16 ? Material.LargeScale : Theme.radius >= 12 ? Material.MediumScale
+                         : Theme.radius >= 8 ? Material.SmallScale : Theme.radius >= 4 ? Material.ExtraSmallScale
+                         : Material.NotRounded
 
     property bool helpVisible: false
     // Narrow, the sidebar steps aside: ☰ (or Ctrl+B) slides it back over
     // the list, and picking a list, Esc, or a tap beside it puts it away.
     readonly property bool compact: width < 720
     property bool sidebarOpen: false
+
+    // The pixel art's three tones, from the theme: the text color for the
+    // faces, fading to the muted color for the depth behind them.
+    readonly property color pixelFace: Theme.foreground
+    readonly property color pixelMid: Theme.mix(Theme.foreground, Theme.muted, 0.5)
+    readonly property color pixelDeep: Theme.muted
+    // The line the logo and the page title share: from the window's top,
+    // and as tall as the logo.
+    readonly property int headerTop: 22
+    readonly property int headerHeight: 30
+    // A project's color as a pastel: its hue, gentler, and light on dark
+    // themes (dark on light ones) so the title reads on either.
+    function pastel(c) {
+        var k = Qt.color(c)
+        var light = Theme.light ? Math.min(k.hslLightness, 0.42) : Math.max(k.hslLightness, 0.67)
+        return Qt.hsla(k.hslHue, Math.min(k.hslSaturation, 0.75) * 0.88, light, 1)
+    }
     onCompactChanged: sidebarOpen = false
     // Single-key shortcuts stand down while typing into a field.
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
@@ -36,23 +59,23 @@ ApplicationWindow {
                                        || newProjectDialog.visible || deleteProjectDialog.visible
                                        || projectColorDialog.visible || sectionDialog.visible || confirmDialog.visible
                                        || taskDetail.visible || projectMenu.visible
-    readonly property bool keysLive: backend.signedIn && !typing && !helpVisible && !pickerOpen
+    readonly property bool keysLive: Backend.signedIn && !typing && !helpVisible && !pickerOpen
     // The task details are open with nothing over them. Then they take a
     // few of the list's keys for the task they show: Ctrl+1–4 and
     // Ctrl+Enter even while typing in them, D and M (detailKeys) when not.
     readonly property bool detailOnTop: taskDetail.visible && !movePicker.visible && !schedulePicker.visible
                                         && !confirmDialog.visible
     readonly property bool detailKeys: detailOnTop && !typing
-    readonly property bool inProject: backend.view.indexOf("project:") === 0
+    readonly property bool inProject: Backend.viewProject !== ""
     readonly property string today: Dates.isoToday()
     // Projects and the Inbox have sections; the dated lists don't.
-    readonly property bool sectionsHere: backend.view === "inbox" || backend.view.indexOf("project:") === 0
+    readonly property bool sectionsHere: Backend.view === "inbox" || inProject
 
     // The lists in the order [ and ] walk through them.
     readonly property var views: {
         var list = ["inbox", "today", "upcoming"]
-        for (var i = 0; i < backend.projects.length; i++)
-            list.push("project:" + backend.projects[i].id)
+        for (let i = 0; i < Backend.projects.length; i++)
+            list.push("project:" + Backend.projects[i].id)
         return list
     }
 
@@ -62,20 +85,20 @@ ApplicationWindow {
     }
 
     function stepView(delta) {
-        var i = views.indexOf(backend.view)
-        backend.showView(views[(i + delta + views.length) % views.length])
+        var i = views.indexOf(Backend.view)
+        Backend.showView(views[(i + delta + views.length) % views.length])
     }
 
     function currentProject() {
-        var list = backend.projects
-        for (var i = 0; i < list.length; i++)
-            if ("project:" + list[i].id === backend.view) return list[i]
+        var list = Backend.projects
+        for (let i = 0; i < list.length; i++)
+            if ("project:" + list[i].id === Backend.view) return list[i]
         return null
     }
 
     // The selected row: a task, or a section's heading.
     function selectedRow() {
-        var rows = backend.rows
+        var rows = Backend.rows
         return taskList.currentIndex >= 0 && taskList.currentIndex < rows.length ? rows[taskList.currentIndex] : null
     }
 
@@ -114,8 +137,8 @@ ApplicationWindow {
     function moveSelectedBy(delta) {
         var row = selectedRow()
         if (!row) return
-        if (row.kind === "section") backend.moveSectionBy(row.id, delta)
-        else backend.moveTaskBy(row.id, delta)
+        if (row.kind === "section") Backend.moveSectionBy(row.id, delta)
+        else Backend.moveTaskBy(row.id, delta)
     }
 
     // Where a drag over a list would drop, by its y in the list: in front of
@@ -124,7 +147,7 @@ ApplicationWindow {
         var cy = y + view.contentY
         var i = view.indexAt(view.width / 2, cy)
         if (i < 0) {
-            var first = view.itemAtIndex(0)
+            let first = view.itemAtIndex(0)
             return first && cy < first.y ? 0 : count
         }
         var row = view.itemAtIndex(i)
@@ -132,7 +155,9 @@ ApplicationWindow {
     }
 
     // The line marking a drop at index, in the list's content coordinates.
-    function dropLineY(view, count, index) {
+    // Given the content height too, so a binding on it runs again once the
+    // rows are laid out.
+    function dropLineY(view, count, index, contentHeight) {
         var row = view.itemAtIndex(Math.min(index, count - 1))
         if (!row) return -1
         return index >= count ? row.y + row.height : row.y
@@ -144,23 +169,23 @@ ApplicationWindow {
     // inbox is the Inbox's id, looked up once when the drag starts.
     function sidebarTargetAt(scenePoint, inbox) {
         var fixed = [[inboxItem, inbox], [todayItem, ""]]
-        for (var i = 0; i < fixed.length; i++) {
-            var item = fixed[i][0]
-            var p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
+        for (let i = 0; i < fixed.length; i++) {
+            let item = fixed[i][0]
+            let p = item.mapFromItem(null, scenePoint.x, scenePoint.y)
             if (p.x >= 0 && p.y >= 0 && p.x < item.width && p.y < item.height)
                 return { view: item.view, projectId: fixed[i][1], name: item.label }
         }
         var q = projectList.mapFromItem(null, scenePoint.x, scenePoint.y)
         if (q.x < 0 || q.y < 0 || q.x >= projectList.width || q.y >= projectList.height) return null
         var index = projectList.indexAt(q.x, q.y + projectList.contentY)
-        var item = index < 0 ? null : projectList.itemAtIndex(index)
+        const item = index < 0 ? null : projectList.itemAtIndex(index) as SidebarItem
         if (!item || !item.project) return null
         return { view: "project:" + item.project.id, projectId: item.project.id, name: item.project.name }
     }
 
     function inboxId() {
-        var list = backend.destinations
-        for (var i = 0; i < list.length; i++)
+        var list = Backend.destinations
+        for (let i = 0; i < list.length; i++)
             if (list[i].inbox) return list[i].projectId
         return ""
     }
@@ -173,7 +198,7 @@ ApplicationWindow {
     }
 
     function completeSelected() {
-        var item = taskList.itemAtIndex(taskList.currentIndex)
+        const item = taskList.itemAtIndex(taskList.currentIndex) as ListEntry
         if (item) item.complete()
     }
 
@@ -189,7 +214,7 @@ ApplicationWindow {
         if (!task) return
         movePicker.target = task
         movePicker.mode = "task"
-        movePicker.show(qsTr("Move “%1” to").arg(task.content), backend.destinations,
+        movePicker.show(qsTr("Move “%1” to").arg(task.content), Backend.destinations,
                         task.sectionId ? "section:" + task.sectionId : "project:" + task.projectId)
     }
 
@@ -197,16 +222,16 @@ ApplicationWindow {
         if (!project) return
         movePicker.target = project
         movePicker.mode = "project"
-        movePicker.show(qsTr("Move “%1” under").arg(project.name), backend.parentChoices(project.id),
+        movePicker.show(qsTr("Move “%1” under").arg(project.name), Backend.parentChoices(project.id),
                         project.parentId ? "project:" + project.parentId : "top")
     }
 
     // Undoing an add deletes the task from Todoist for good, so it asks
     // first, like Delete does.
     function undo() {
-        var doomed = backend.undoDeletes()
-        if (!doomed.id) { backend.undo(); return }
-        var subtasks = backend.subtaskCount(doomed.id)
+        var doomed = Backend.undoDeletes()
+        if (!doomed.id) { Backend.undo(); return }
+        var subtasks = Backend.subtaskCount(doomed.id)
         confirmDialog.pending = { kind: "undo-add", id: doomed.id }
         confirmDialog.ask(qsTr("Undo adding “%1”?").arg(doomed.text),
                           subtasks > 0 ? qsTr("Undoing an add deletes the task from Todoist. %n subtasks will be deleted with it.", "", subtasks)
@@ -225,8 +250,8 @@ ApplicationWindow {
             // A project's list has all its tasks, so the count is exact. A
             // dated list (and the details opened from one) may not show
             // them all, so Cancel takes Enter there.
-            var subtasks = backend.subtaskCount(row.id)
-            var exact = win.sectionsHere
+            let subtasks = Backend.subtaskCount(row.id)
+            let exact = win.sectionsHere
             confirmDialog.ask(qsTr("Delete “%1”?").arg(row.content),
                               subtasks > 0 ? qsTr("%n subtasks will be deleted with it.", "", subtasks)
                                            : exact ? "" : qsTr("Any subtasks it has will be deleted with it."),
@@ -242,7 +267,7 @@ ApplicationWindow {
             else if (addField.activeFocus) { addField.text = ""; addField.parentTask = null; taskList.forceActiveFocus() }
             else win.sidebarOpen = false
         } }
-    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: win.compact && backend.signedIn && !win.pickerOpen
+    Shortcut { sequence: "Ctrl+B"; context: Qt.ApplicationShortcut; enabled: win.compact && Backend.signedIn && !win.pickerOpen
         onActivated: win.sidebarOpen = !win.sidebarOpen }
     Shortcut { sequence: "Q"; context: Qt.ApplicationShortcut; enabled: !win.typing; onActivated: Qt.quit() }
     Shortcut { sequence: "Space"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.completeSelected() }
@@ -252,80 +277,80 @@ ApplicationWindow {
     Shortcut { sequence: "O"; context: Qt.ApplicationShortcut; enabled: win.keysLive
         onActivated: { var t = win.selectedTask(); if (t) Qt.openUrlExternally(t.url) } }
     Shortcut { sequence: "M"; context: Qt.ApplicationShortcut; enabled: win.keysLive || win.detailKeys; onActivated: win.moveTask(win.targetTask()) }
-    Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "Shift+M"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: win.moveProject(win.currentProject()) }
     Shortcut { sequences: ["Delete", "Backspace"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.deleteRow(win.selectedRow()) }
     Shortcut { sequence: "S"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
-        onActivated: sectionDialog.openNew(backend.viewName) }
+        onActivated: sectionDialog.openNew(Backend.viewName) }
     Shortcut { sequence: "D"; context: Qt.ApplicationShortcut; enabled: win.keysLive || win.detailKeys; onActivated: schedulePicker.openFor(win.targetTask()) }
     Shortcut { sequence: "T"; context: Qt.ApplicationShortcut; enabled: win.keysLive
-        onActivated: { var t = win.selectedTask(); if (t) backend.schedule(t.id, "today") } }
+        onActivated: { var t = win.selectedTask(); if (t) Backend.schedule(t.id, "today") } }
     Shortcut { sequence: "P"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: newProjectDialog.openNew() }
-    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "C"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: projectColorDialog.openFor(win.currentProject()) }
-    Shortcut { sequence: "Ctrl+Delete"; context: Qt.ApplicationShortcut; enabled: win.keysLive && backend.view.indexOf("project:") === 0
+    Shortcut { sequence: "Ctrl+Delete"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: deleteProjectDialog.openFor(win.currentProject()) }
-    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.refresh() }
+    Shortcut { sequence: "R"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: Backend.refresh() }
     Shortcut { sequences: ["Return", "Enter"]; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.openSelected() }
     Shortcut { sequences: ["Ctrl+Return", "Ctrl+Enter"]; context: Qt.ApplicationShortcut; enabled: win.detailOnTop
         onActivated: taskDetail.close() }
     Shortcut { sequence: "Shift+N"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.addSubtask() }
     Shortcut { sequences: ["Ctrl+]", "Tab"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
-        onActivated: { var t = win.selectedTask(); if (t) backend.indentTask(t.id) } }
+        onActivated: { var t = win.selectedTask(); if (t) Backend.indentTask(t.id) } }
     Shortcut { sequences: ["Ctrl+[", "Shift+Tab", "Backtab"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
-        onActivated: { var t = win.selectedTask(); if (t) backend.outdentTask(t.id) } }
+        onActivated: { var t = win.selectedTask(); if (t) Backend.outdentTask(t.id) } }
     Shortcut { sequences: ["Alt+J", "Alt+Down"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
         onActivated: win.moveSelectedBy(1) }
     Shortcut { sequences: ["Alt+K", "Alt+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.sectionsHere
         onActivated: win.moveSelectedBy(-1) }
     Shortcut { sequences: ["Alt+Shift+J", "Alt+Shift+Down"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
-        onActivated: backend.moveProjectBy(win.currentProject().id, 1) }
+        onActivated: { var p = win.currentProject(); if (p) Backend.moveProjectBy(p.id, 1) } }
     Shortcut { sequences: ["Alt+Shift+K", "Alt+Shift+Up"]; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
-        onActivated: backend.moveProjectBy(win.currentProject().id, -1) }
+        onActivated: { var p = win.currentProject(); if (p) Backend.moveProjectBy(p.id, -1) } }
     Shortcut { sequence: "F2"; context: Qt.ApplicationShortcut; enabled: win.keysLive && win.inProject
         onActivated: sectionDialog.openRenameProject(win.currentProject()) }
     // Priority as users count it: Ctrl+1 is p1. Plain 1–3 pick lists.
     Repeater {
         model: 4
         Item {
+            id: priorityKey
             required property int index
             Shortcut {
-                sequence: "Ctrl+" + (index + 1)
+                sequence: "Ctrl+" + (priorityKey.index + 1)
                 context: Qt.ApplicationShortcut
                 enabled: win.keysLive || win.detailOnTop
-                onActivated: { var t = win.targetTask(); if (t) backend.setPriority(t.id, index + 1) }
+                onActivated: { const t = win.targetTask(); if (t) Backend.setPriority(t.id, priorityKey.index + 1) }
             }
         }
     }
-    Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("inbox") }
-    Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("today") }
-    Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: backend.showView("upcoming") }
+    Shortcut { sequence: "1"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: Backend.showView("inbox") }
+    Shortcut { sequence: "2"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: Backend.showView("today") }
+    Shortcut { sequence: "3"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: Backend.showView("upcoming") }
     Shortcut { sequence: "["; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.stepView(-1) }
     Shortcut { sequence: "]"; context: Qt.ApplicationShortcut; enabled: win.keysLive; onActivated: win.stepView(1) }
-    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; enabled: backend.signedIn && !win.typing; onActivated: win.undo() }
-    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; context: Qt.ApplicationShortcut; enabled: backend.signedIn && !win.typing; onActivated: backend.redo() }
+    Shortcut { sequences: [StandardKey.Undo]; context: Qt.ApplicationShortcut; enabled: Backend.signedIn && !win.typing; onActivated: win.undo() }
+    Shortcut { sequences: [StandardKey.Redo, "Ctrl+Shift+Z"]; context: Qt.ApplicationShortcut; enabled: Backend.signedIn && !win.typing; onActivated: Backend.redo() }
 
-    Component.onCompleted: if (backend.signedIn) taskList.forceActiveFocus(); else signIn.focusField()
+    Component.onCompleted: if (Backend.signedIn) taskList.forceActiveFocus(); else signIn.focusField()
 
     Connections {
-        target: backend
+        target: Backend
         function onViewChanged() { win.sidebarOpen = false }
     }
 
     // Coming back to the window picks up changes made elsewhere.
-    onActiveChanged: if (active && backend.signedIn) backend.refresh()
+    onActiveChanged: if (active && Backend.signedIn) Backend.refresh()
 
-    // Right-to-left languages mirror the window; the Translator sets the
-    // application's layout direction.
+    // Right-to-left languages mirror the window.
     Item {
         anchors.fill: parent
-        LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
+        LayoutMirroring.enabled: Translator.rightToLeft
         LayoutMirroring.childrenInherit: true
 
         SignInView {
             id: signIn
             anchors.fill: parent
-            visible: !backend.signedIn
+            visible: !Backend.signedIn
             // Only the visible screen takes the keyboard, so a hidden field
             // never swallows the single-key shortcuts.
             onVisibleChanged: if (visible) focusField(); else taskList.forceActiveFocus()
@@ -333,7 +358,7 @@ ApplicationWindow {
 
         Item {
             anchors.fill: parent
-            visible: backend.signedIn
+            visible: Backend.signedIn
 
             // ------------------------------------------------ sidebar
             Rectangle {
@@ -345,7 +370,7 @@ ApplicationWindow {
                 Behavior on anchors.leftMargin { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                 width: 230
                 z: 3
-                color: theme.darkBackground
+                color: Theme.darkBackground
 
                 ColumnLayout {
                     id: sidebarColumn
@@ -354,47 +379,27 @@ ApplicationWindow {
                     anchors.bottomMargin: 12
                     spacing: 2
 
-                    // The ZERO wordmark, pixel art 39 by 10, at exactly three
-                    // times that (117 by 30), unsmoothed, so every pixel stays
-                    // sharp, lined up with the lists' icons below. PNGs at each
-                    // scale, not the SVG, so it needs no Qt SVG; Qt picks the
-                    // @2x or @4x one on a HiDPI screen.
-                    //
-                    // It sits on one line with the page title: the middle of
-                    // its letters' bright faces (rows 0-7 of 10, so 12 px down
-                    // at 3x; the bottom rows are their darker depth) on the
-                    // middle of the title's capitals. Below it, 1.5 times the
-                    // gap between the lists' icons, so it reads as a header,
-                    // not the first item.
-                    Image {
-                        readonly property real faceMiddle: 12
-                        FontMetrics { id: titleMetrics; font: pageTitle.font }
-                        // Where the title's capitals are middled: its baseline,
-                        // less half an H. Both columns start at the window's
-                        // top, so the title's y in its column is its y here.
-                        // Naming the font makes this re-measure when it changes;
-                        // the call alone isn't a dependency QML tracks.
-                        readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
-                        readonly property real titleCapMiddle: pageHeader.y + pageTitle.y + pageTitle.baselineOffset
-                                                               - capHeight / 2
-                        readonly property real wantedTop: titleCapMiddle - faceMiddle - sidebarColumn.anchors.topMargin
+                    // The logo, the check and ZERO, drawn in the theme's
+                    // colors at three times its pixel art (165 by 30), lined
+                    // up with the lists' icons below. It shares its line with
+                    // the page title, and below it there's 1.5 times the gap
+                    // between the lists, so it reads as a header, not the
+                    // first item.
+                    PixelArt {
+                        art: "lockup"
+                        pixelScale: 3
+                        faceColor: win.pixelFace
+                        midColor: win.pixelMid
+                        deepColor: win.pixelDeep
                         Layout.leftMargin: 20
-                        // A number however the fonts come out, so layout never
-                        // gets NaN.
-                        Layout.topMargin: isFinite(wantedTop) ? Math.max(0, Math.round(wantedTop)) : 4
+                        Layout.topMargin: win.headerTop - sidebarColumn.anchors.topMargin
                         Layout.bottomMargin: 22
-                        source: "qrc:/zero-wordmark.png"
-                        fillMode: Image.PreserveAspectFit
-                        Layout.preferredWidth: 117
-                        Layout.preferredHeight: 30
-                        smooth: false
-                        mipmap: false
                         Accessible.role: Accessible.StaticText
                         Accessible.name: "Zero"
                     }
 
                     SidebarItem { id: inboxItem; view: "inbox"; label: qsTr("Inbox"); glyph: "inbox"; hotkey: "1" }
-                    SidebarItem { id: todayItem; view: "today"; label: qsTr("Today"); glyph: "today"; count: backend.todayCount; hotkey: "2" }
+                    SidebarItem { id: todayItem; view: "today"; label: qsTr("Today"); glyph: "today"; count: Backend.todayCount; hotkey: "2" }
                     SidebarItem { view: "upcoming"; label: qsTr("Upcoming"); glyph: "upcoming"; hotkey: "3" }
 
                     RowLayout {
@@ -409,14 +414,14 @@ ApplicationWindow {
                             font.pixelSize: 12
                             font.bold: true
                             font.capitalization: Font.AllUppercase
-                            color: theme.muted
+                            color: Theme.muted
                         }
                         Label {
                             text: "+"
                             font.pixelSize: 18
                             leftPadding: 6
                             rightPadding: 6
-                            color: addProjectHover.hovered ? theme.accent : theme.dimForeground
+                            color: addProjectHover.hovered ? Theme.accent : Theme.dimForeground
                             HoverHandler { id: addProjectHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler { onTapped: newProjectDialog.openNew() }
                             ToolTip.visible: addProjectHover.hovered
@@ -430,7 +435,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        model: backend.projects
+                        model: Backend.projects
                         boundsBehavior: Flickable.StopAtBounds
                         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                         delegate: SidebarItem {
@@ -452,15 +457,15 @@ ApplicationWindow {
                             dropAt = win.dropIndexIn(projectList, projectList.count, p.y)
                         }
                         function dropDragged() {
-                            if (dragProject && dropAt >= 0) backend.dropProject(dragProject.id, dropAt)
+                            if (dragProject && dropAt >= 0) Backend.dropProject(dragProject.id, dropAt)
                             dragProject = null
                             dropAt = -1
                         }
 
                         DropLine {
                             visible: projectList.dragProject !== null && projectList.dropAt >= 0
-                            y: Math.max(0, (projectList.dropAt, projectList.contentHeight,
-                                win.dropLineY(projectList, projectList.count, projectList.dropAt)) - 1)
+                            y: Math.max(0, win.dropLineY(projectList, projectList.count, projectList.dropAt,
+                                                         projectList.contentHeight) - 1)
                             x: 20 + (projectList.dragProject ? projectList.dragProject.depth : 0) * 14
                             width: projectList.width - x - 12
                         }
@@ -468,10 +473,10 @@ ApplicationWindow {
 
                     Label {
                         Layout.leftMargin: 20
-                        visible: !backend.tokenFromEnvironment
+                        visible: !Backend.tokenFromEnvironment
                         text: qsTr("Sign out")
                         font.pixelSize: 12
-                        color: signOutHover.hovered ? theme.softForeground : theme.muted
+                        color: signOutHover.hovered ? Theme.softForeground : Theme.muted
                         HoverHandler { id: signOutHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: signOutDialog.open() }
                     }
@@ -484,7 +489,7 @@ ApplicationWindow {
                 anchors.left: sidebar.right
                 width: 1
                 z: 3
-                color: theme.lighterBackground
+                color: Theme.lighterBackground
             }
 
             // Behind the slid-out sidebar: a tap here puts it away.
@@ -492,7 +497,7 @@ ApplicationWindow {
                 anchors.fill: parent
                 z: 2
                 visible: win.compact && win.sidebarOpen
-                color: Qt.rgba(0, 0, 0, theme.light ? 0.25 : 0.5)
+                color: Qt.rgba(0, 0, 0, Theme.light ? 0.25 : 0.5)
                 TapHandler { onTapped: win.sidebarOpen = false }
             }
 
@@ -508,9 +513,12 @@ ApplicationWindow {
                 RowLayout {
                     id: pageHeader
                     Layout.fillWidth: true
-                    Layout.leftMargin: win.compact ? 16 : 32
+                    // The title starts where the add box's text does, as the
+                    // logo starts where the lists' icons do.
+                    Layout.leftMargin: win.compact ? 16 : 28
                     Layout.rightMargin: win.compact ? 16 : 24
-                    Layout.topMargin: 22
+                    Layout.topMargin: win.headerTop
+                    Layout.preferredHeight: win.headerHeight
                     spacing: 12
 
                     Label {
@@ -518,27 +526,46 @@ ApplicationWindow {
                         text: "☰"
                         font.pixelSize: 20
                         padding: 2
-                        color: menuHover.hovered ? theme.accent : theme.softForeground
+                        color: menuHover.hovered ? Theme.accent : Theme.softForeground
                         HoverHandler { id: menuHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: win.sidebarOpen = !win.sidebarOpen }
                         ToolTip.visible: menuHover.hovered && !win.sidebarOpen
                         ToolTip.text: qsTr("Lists (Ctrl+B)")
                         ToolTip.delay: 400
                     }
-                    Label {
+                    // The list's name, its capitals middled on the logo's
+                    // line. A project's is in its color, softened toward
+                    // the text color so it reads on any Theme.
+                    Item {
                         id: pageTitle
-                        Layout.fillWidth: win.compact
-                        text: backend.viewName
-                        textFormat: Text.PlainText
-                        font.pixelSize: 20
-                        font.bold: true
-                        color: theme.foreground
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: 480
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: win.headerHeight
+                        // The middle of the logo's faces, 12 px down.
+                        readonly property real faceMiddle: 12
+                        readonly property var project: win.currentProject()
+
+                        Label {
+                            id: titleLabel
+                            width: parent.width
+                            text: Backend.viewName
+                            textFormat: Text.PlainText
+                            font.pixelSize: 20
+                            font.bold: true
+                            color: pageTitle.project && pageTitle.project.color
+                                   ? win.pastel(pageTitle.project.color) : Theme.foreground
+                            elide: Text.ElideRight
+                            Accessible.role: Accessible.Heading
+                            FontMetrics { id: titleMetrics; font: titleLabel.font }
+                            // Given the font, so it re-measures when that
+                            // changes; the call alone isn't a dependency.
+                            function capHeightOf(font: font): real { return titleMetrics.tightBoundingRect("H").height }
+                            readonly property real capHeight: capHeightOf(titleMetrics.font)
+                            readonly property real wantedY: pageTitle.faceMiddle - baselineOffset + capHeight / 2
+                            y: isFinite(wantedY) ? Math.round(wantedY) : 0
+                        }
                     }
-                    Item { Layout.fillWidth: true }
                     BusyIndicator {
-                        running: backend.busy
+                        running: Backend.busy
                         opacity: running ? 1 : 0
                         implicitWidth: 28
                         implicitHeight: 28
@@ -547,21 +574,22 @@ ApplicationWindow {
                         visible: !win.compact
                         text: qsTr("? for shortcuts")
                         font.pixelSize: 12
-                        color: theme.muted
+                        color: Theme.muted
                     }
                 }
 
                 // A failed request says why, and stays until dismissed or fixed.
                 Rectangle {
+                    id: errorBanner
                     Layout.fillWidth: true
                     Layout.leftMargin: 28
                     Layout.rightMargin: 24
                     Layout.topMargin: 12
-                    visible: backend.error !== ""
+                    visible: Backend.error !== ""
                     implicitHeight: errorRow.implicitHeight + 20
-                    radius: Math.min(6, theme.radius)
-                    color: theme.mix(theme.red, theme.background, 0.16)
-                    border.color: theme.mix(theme.red, theme.background, 0.45)
+                    radius: Math.min(6, Theme.radius)
+                    color: Theme.mix(Theme.red, Theme.background, 0.16)
+                    border.color: Theme.mix(Theme.red, Theme.background, 0.45)
 
                     RowLayout {
                         id: errorRow
@@ -570,14 +598,14 @@ ApplicationWindow {
                         anchors.leftMargin: 14
                         Label {
                             Layout.fillWidth: true
-                            text: backend.error
+                            text: Backend.error
                             textFormat: Text.PlainText
                             wrapMode: Text.Wrap
-                            color: theme.red
+                            color: Theme.red
                             font.pixelSize: 13
                         }
-                        Button { text: qsTr("Retry"); flat: true; onClicked: { backend.dismissError(); backend.refresh() } }
-                        Button { text: qsTr("Dismiss"); flat: true; onClicked: backend.dismissError() }
+                        Button { text: qsTr("Retry"); flat: true; onClicked: { Backend.dismissError(); Backend.refresh() } }
+                        Button { text: qsTr("Dismiss"); flat: true; onClicked: Backend.dismissError() }
                     }
                 }
 
@@ -588,18 +616,20 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.leftMargin: 16
                     Layout.rightMargin: 16
-                    Layout.topMargin: 14
-                    implicitHeight: 34
+                    // Level with Inbox in the lists, and as tall, unless the
+                    // error banner is in the way.
+                    Layout.topMargin: errorBanner.visible ? 12
+                        : Math.max(8, sidebarColumn.anchors.topMargin + inboxItem.y - win.headerTop - win.headerHeight)
+                    implicitHeight: inboxItem.height
                     leftPadding: 12
                     rightPadding: 12
                     topPadding: 0
                     bottomPadding: 0
                     verticalAlignment: TextInput.AlignVCenter
                     font.pixelSize: 13
-                    color: theme.foreground
-                    placeholderTextColor: theme.muted
-                    selectionColor: theme.selection
-                    selectedTextColor: theme.foreground
+                    color: Theme.foreground
+                    selectionColor: Theme.selection
+                    selectedTextColor: Theme.foreground
                     // Set by Shift+N: what's added goes under this task,
                     // until Esc or the box is left.
                     property var parentTask: null
@@ -618,7 +648,7 @@ ApplicationWindow {
                         else forceActiveFocus()
                     }
                     function fill() {
-                        prefill = parentTask ? "" : backend.addPrefix(win.addSection())
+                        prefill = parentTask ? "" : Backend.addPrefix(win.addSection())
                         text = prefill
                         cursorPosition = text.length
                     }
@@ -630,16 +660,28 @@ ApplicationWindow {
                             parentTask = null
                         }
                     }
-                    placeholderText: parentTask ? qsTr("Add a subtask to “%1”").arg(parentTask.content) : qsTr("Add a task (N)")
+                    // Drawn here rather than as placeholderText, which would
+                    // read a task's name as markup.
+                    Label {
+                        x: addField.leftPadding
+                        width: addField.width - addField.leftPadding - addField.rightPadding
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: addField.length === 0 && addField.preeditText === ""
+                        text: addField.parentTask ? qsTr("Add a subtask to “%1”").arg(addField.parentTask.content) : qsTr("Add a task (N)")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        font: addField.font
+                        color: Theme.muted
+                    }
                     background: Rectangle {
-                        radius: Math.min(6, theme.radius)
-                        color: addField.activeFocus ? theme.tint(0.04) : "transparent"
+                        radius: Math.min(6, Theme.radius)
+                        color: addField.activeFocus ? Theme.tint(0.04) : "transparent"
                         border.width: 1
-                        border.color: addField.activeFocus ? theme.accent : theme.lighterBackground
+                        border.color: addField.activeFocus ? Theme.accent : Theme.lighterBackground
                     }
                     onAccepted: {
                         if (text.trim() === "" || text === prefill) return
-                        backend.add(text, parentTask ? parentTask.id : "")
+                        Backend.add(text, parentTask ? parentTask.id : "")
                         // Ready for the next one, in the same place.
                         fill()
                     }
@@ -654,8 +696,10 @@ ApplicationWindow {
                              ? qsTr("Quick add: “Pay rent friday 9am #Home p1 @errand”. Without a #project it goes to the Inbox.")
                              : qsTr("Type after “%1” to add it there, or clear it for the Inbox. Dates, #project, @label and p1–p4 work.").arg(addField.prefill.trim()))
                           : " "
+                    // It quotes task and project names, which aren't markup.
+                    textFormat: Text.PlainText
                     font.pixelSize: 11
-                    color: theme.muted
+                    color: Theme.muted
                     elide: Text.ElideRight
                     Layout.fillWidth: true
                     Layout.rightMargin: 24
@@ -672,7 +716,7 @@ ApplicationWindow {
                     keyNavigationEnabled: false
                     boundsBehavior: Flickable.StopAtBounds
                     highlightMoveDuration: 0
-                    model: backend.rows
+                    model: Backend.rows
                     currentIndex: -1
                     ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
@@ -681,7 +725,7 @@ ApplicationWindow {
                     // currentIndex on its own, so it's restored after one.
                     property string selectedId: ""
                     function select(i) {
-                        var rows = backend.rows
+                        var rows = Backend.rows
                         if (rows.length === 0) { currentIndex = -1; selectedId = ""; return }
                         currentIndex = Math.max(0, Math.min(i, rows.length - 1))
                         selectedId = rows[currentIndex].key
@@ -689,14 +733,14 @@ ApplicationWindow {
                     }
                     function moveSelection(delta) { select(currentIndex < 0 ? 0 : currentIndex + delta) }
                     function restoreSelection(previous) {
-                        var rows = backend.rows
-                        for (var i = 0; i < rows.length; i++)
+                        var rows = Backend.rows
+                        for (let i = 0; i < rows.length; i++)
                             if (rows[i].key === selectedId) { currentIndex = i; return }
                         if (selectedId === "") { currentIndex = -1; return }
                         select(previous)
                     }
                     Connections {
-                        target: backend
+                        target: Backend
                         function onTasksChanged() {
                             var previous = taskList.currentIndex
                             Qt.callLater(taskList.restoreSelection, previous)
@@ -742,18 +786,18 @@ ApplicationWindow {
                         if (target) {
                             if (target.view === "today") {
                                 if (row.dayOffset !== 0 || !row.hasDue) {
-                                    backend.schedule(row.id, "today")
+                                    Backend.schedule(row.id, "today")
                                     win.toastShow(qsTr("“%1” is due today. Ctrl+Z to undo.").arg(row.content))
                                 }
                             } else if (target.projectId && target.projectId !== row.projectId) {
-                                backend.moveTask(row.id, target.projectId, "")
+                                Backend.moveTask(row.id, target.projectId, "")
                                 win.toastShow(qsTr("Moved “%1” to %2. Ctrl+Z to undo.").arg(row.content).arg(target.name))
                             }
                             return
                         }
                         if (at < 0) return
-                        if (row.kind === "section") backend.dropSection(row.id, at)
-                        else backend.dropTask(row.id, at)
+                        if (row.kind === "section") Backend.dropSection(row.id, at)
+                        else Backend.dropTask(row.id, at)
                     }
                     // The level a task would take, to indent the line by: the
                     // task it lands in front of, past itself and its subtasks,
@@ -762,11 +806,11 @@ ApplicationWindow {
                         var rows = dragRows
                         if (!dragRow || dragRow.kind === "section" || dropAt < 0) return 0
                         var from = -1, to = -1
-                        for (var k = 0; k < rows.length; k++)
+                        for (let k = 0; k < rows.length; k++)
                             if (rows[k].key === dragRow.key) from = k
                         to = from + 1
                         while (from >= 0 && to < rows.length && rows[to].kind === "task" && rows[to].depth > rows[from].depth) to++
-                        for (var i = dropAt; i < rows.length; i++) {
+                        for (let i = dropAt; i < rows.length; i++) {
                             if (i >= from && i < to) continue
                             return rows[i].kind === "task" ? (rows[i].depth || 0) : 0
                         }
@@ -787,38 +831,18 @@ ApplicationWindow {
                         }
                     }
 
-                    // Sections are made from here too, not only with S.
-                    footer: Item {
-                        width: ListView.view.width
-                        height: win.sectionsHere && backend.loaded ? 48 : 0
-                        visible: height > 0
-                        Label {
-                            id: addSectionLabel
-                            anchors.left: parent.left
-                            anchors.leftMargin: 16
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("+ Add section (S)")
-                            font.pixelSize: 13
-                            padding: 4
-                            color: addSectionHover.hovered ? theme.accent : theme.dimForeground
-                            HoverHandler { id: addSectionHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: sectionDialog.openNew(backend.viewName) }
-                        }
-                    }
-
                     DropLine {
                         visible: taskList.dragRow !== null && taskList.dropAt >= 0
-                        y: Math.max(0, (taskList.dropAt, taskList.contentHeight,
-                            win.dropLineY(taskList, taskList.count, taskList.dropAt)) - 1)
+                        y: Math.max(0, win.dropLineY(taskList, taskList.count, taskList.dropAt, taskList.contentHeight) - 1)
                         x: 16 + taskList.dropDepth * 26
                         width: taskList.width - x - 16
                         z: 5
                     }
 
-                    readonly property bool grouped: backend.view === "today" || backend.view === "upcoming"
+                    readonly property bool grouped: Backend.view === "today" || Backend.view === "upcoming"
                     // Upcoming is headed by day. Today isn't: it's all today,
                     // and an overdue task says its date in red.
-                    section.property: backend.view === "upcoming" ? "group" : ""
+                    section.property: Backend.view === "upcoming" ? "group" : ""
                     section.delegate: Item {
                         required property string section
                         width: ListView.view.width
@@ -828,10 +852,10 @@ ApplicationWindow {
                             anchors.bottom: parent.bottom
                             anchors.leftMargin: 20
                             anchors.bottomMargin: 6
-                            text: (translator.language, Dates.sectionLabel(parent.section, win.today, Qt.locale()))
+                            text: Dates.sectionLabel(parent.section, win.today, Translator.locale)
                             font.pixelSize: 12
                             font.bold: true
-                            color: parent.section === "overdue" ? theme.red : theme.softForeground
+                            color: parent.section === "overdue" ? Theme.red : Theme.softForeground
                         }
                         Rectangle {
                             anchors.bottom: parent.bottom
@@ -840,95 +864,31 @@ ApplicationWindow {
                             anchors.leftMargin: 20
                             anchors.rightMargin: 20
                             height: 1
-                            color: theme.lighterBackground
+                            color: Theme.lighterBackground
                         }
                     }
 
                     // A task, or a section's heading.
-                    delegate: Item {
-                        id: entry
-                        required property var modelData
-                        required property int index
-                        readonly property bool isSection: modelData.kind === "section"
-                        readonly property bool current: ListView.isCurrentItem
-                        width: ListView.view.width
-                        height: loader.item ? loader.item.implicitHeight : 0
-                        opacity: taskList.dragRow && taskList.dragRow.key === modelData.key ? 0.35 : 1
-
-                        function complete() { if (!isSection && loader.item) loader.item.complete() }
-
-                        // Dragging picks the row up; it lands where the line shows.
-                        DragHandler {
-                            target: null
-                            enabled: win.sectionsHere || !entry.isSection
-                            cursorShape: Qt.ClosedHandCursor
-                            onActiveChanged: {
-                                if (active) {
-                                    taskList.select(entry.index)
-                                    taskList.forceActiveFocus()
-                                    taskList.dragRows = backend.rows
-                                    taskList.dragInbox = win.inboxId()
-                                    taskList.dragRow = entry.modelData
-                                } else {
-                                    taskList.dropDragged()
-                                }
-                            }
-                            onCentroidChanged: if (active) taskList.dragMoved(centroid.scenePosition)
-                        }
-                        // A refresh that rebuilds the list mid-drag ends it.
-                        Component.onDestruction: if (taskList.dragRow && taskList.dragRow.key === modelData.key) taskList.dragRow = null
-
-                        Loader {
-                            id: loader
-                            width: parent.width
-                            sourceComponent: entry.isSection ? sectionComponent : taskComponent
-                        }
-                        Component {
-                            id: taskComponent
-                            TaskRow {
-                                task: entry.modelData
-                                selected: entry.current
-                                draggable: true
-                                showProject: taskList.grouped
-                                groupedByDay: taskList.grouped
-                                narrow: taskList.width < 560
-                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
-                                onCompleteRequested: backend.complete(entry.modelData.id)
-                                onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
-                                onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
-                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
-                                onOpenRequested: { taskList.select(entry.index); taskDetail.openFor(entry.modelData.id) }
-                            }
-                        }
-                        Component {
-                            id: sectionComponent
-                            SectionRow {
-                                section: entry.modelData
-                                selected: entry.current
-                                draggable: true
-                                onSelectRequested: { taskList.select(entry.index); win.focusList() }
-                                onAddRequested: { taskList.select(entry.index); addField.start() }
-                                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
-                                onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
-                            }
-                        }
-                    }
+                    delegate: ListEntry {}
 
                     Column {
                         anchors.centerIn: parent
-                        visible: backend.loaded && backend.rows.length === 0
+                        visible: Backend.loaded && taskList.count === 0
                         spacing: 8
-                        Label {
+                        // The logo's check, nothing left to do.
+                        PixelArt {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "✓"
-                            font.pixelSize: 44
-                            color: theme.accent
+                            art: "check"
+                            pixelScale: 4
+                            faceColor: win.pixelFace
+                            midColor: win.pixelMid
+                            deepColor: win.pixelDeep
                         }
                         Label {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: backend.view === "today" ? qsTr("Nothing left for today.") : qsTr("Nothing here.")
+                            text: Backend.view === "today" ? qsTr("Nothing left for today.") : qsTr("Nothing here.")
                             font.pixelSize: 16
-                            color: theme.dimForeground
+                            color: Theme.dimForeground
                         }
                     }
                 }
@@ -942,9 +902,9 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 24
-            radius: Math.min(8, theme.radius)
-            color: theme.lighterBackground
-            border.color: theme.muted
+            radius: Math.min(8, Theme.radius)
+            color: Theme.lighterBackground
+            border.color: Theme.muted
             implicitWidth: toastLabel.implicitWidth + 32
             implicitHeight: toastLabel.implicitHeight + 20
             opacity: toastTimer.running ? 1 : 0
@@ -956,12 +916,12 @@ ApplicationWindow {
                 anchors.centerIn: parent
                 text: toast.message
                 textFormat: Text.PlainText
-                color: theme.foreground
+                color: Theme.foreground
                 font.pixelSize: 13
             }
             Timer { id: toastTimer; interval: 2600 }
             Connections {
-                target: backend
+                target: Backend
                 function onAdded(content) {
                     toast.message = qsTr("Added “%1”. Ctrl+Z to undo.").arg(content)
                     toastTimer.restart()
@@ -978,9 +938,9 @@ ApplicationWindow {
             y: taskList.dragScene.y - height / 2
             width: Math.min(ghostLabel.implicitWidth + 24, 340)
             height: ghostLabel.implicitHeight + 12
-            radius: Math.min(6, theme.radius)
-            color: theme.lighterBackground
-            border.color: theme.accent
+            radius: Math.min(6, Theme.radius)
+            color: Theme.lighterBackground
+            border.color: Theme.accent
             opacity: 0.95
             Label {
                 id: ghostLabel
@@ -996,7 +956,7 @@ ApplicationWindow {
                       + (target ? (target.view === "today" ? "  →  " + qsTr("due today") : "  →  " + target.name) : "")
                 font.pixelSize: 13
                 font.bold: !!row && row.kind === "section"
-                color: theme.foreground
+                color: Theme.foreground
             }
         }
 
@@ -1008,8 +968,8 @@ ApplicationWindow {
             onClosed: win.refocus()
             onChosen: function(item) {
                 if (!target) return
-                if (mode === "project") backend.moveProject(target.id, item.projectId)
-                else backend.moveTask(target.id, item.projectId, item.sectionId)
+                if (mode === "project") Backend.moveProject(target.id, item.projectId)
+                else Backend.moveTask(target.id, item.projectId, item.sectionId)
             }
         }
 
@@ -1027,9 +987,9 @@ ApplicationWindow {
                 if (pending.kind === "undo-add") {
                     // Only if that add is still the next undo; something
                     // may have landed on the stack while this was open.
-                    if (backend.undoDeletes().id === pending.id) backend.undo()
-                } else if (pending.kind === "section") backend.deleteSection(pending.id)
-                else backend.deleteTask(pending.id)
+                    if (Backend.undoDeletes().id === pending.id) Backend.undo()
+                } else if (pending.kind === "section") Backend.deleteSection(pending.id)
+                else Backend.deleteTask(pending.id)
             }
         }
 
@@ -1064,7 +1024,6 @@ ApplicationWindow {
         Menu {
             id: projectMenu
             property var project: null
-            Material.roundedScale: theme.radius
             MenuItem {
                 text: qsTr("Rename…")
                 onTriggered: sectionDialog.openRenameProject(projectMenu.project)
@@ -1079,11 +1038,11 @@ ApplicationWindow {
             }
             MenuItem {
                 text: qsTr("Move up")
-                onTriggered: backend.moveProjectBy(projectMenu.project.id, -1)
+                onTriggered: Backend.moveProjectBy(projectMenu.project.id, -1)
             }
             MenuItem {
                 text: qsTr("Move down")
-                onTriggered: backend.moveProjectBy(projectMenu.project.id, 1)
+                onTriggered: Backend.moveProjectBy(projectMenu.project.id, 1)
             }
             MenuItem {
                 text: qsTr("Delete project…")
@@ -1092,7 +1051,7 @@ ApplicationWindow {
         }
 
         Connections {
-            target: backend
+            target: Backend
             function onProjectDeleted(name) { win.toastShow(qsTr("Deleted “%1”.").arg(name)) }
             function onTaskDeleted(content) { win.toastShow(qsTr("Deleted “%1”.").arg(content)) }
             function onSectionDeleted(name) { win.toastShow(qsTr("Deleted the section “%1”.").arg(name)) }
@@ -1112,28 +1071,97 @@ ApplicationWindow {
             modal: true
             title: qsTr("Sign out of Todoist?")
             standardButtons: Dialog.Cancel | Dialog.Ok
-            Material.roundedScale: theme.radius
             Label {
                 text: qsTr("Zero forgets the API token. Your tasks stay in Todoist.")
                 wrapMode: Text.Wrap
                 width: 320
             }
-            onAccepted: backend.signOut()
+            onAccepted: Backend.signOut()
         }
     }
 
     // Where a dragged row would land.
+    // A row of the task list: a task, or a section's heading.
+    component ListEntry: Item {
+        id: entry
+        required property var modelData
+        required property int index
+        readonly property bool isSection: modelData.kind === "section"
+        readonly property bool current: ListView.isCurrentItem
+        width: ListView.view.width
+        height: loader.implicitHeight
+        opacity: taskList.dragRow && taskList.dragRow.key === modelData.key ? 0.35 : 1
+
+        function complete() { if (!isSection) (loader.item as TaskRow)?.complete() }
+
+        // Dragging picks the row up; it lands where the line shows.
+        DragHandler {
+            target: null
+            enabled: win.sectionsHere || !entry.isSection
+            cursorShape: Qt.ClosedHandCursor
+            onActiveChanged: {
+                if (active) {
+                    taskList.select(entry.index)
+                    taskList.forceActiveFocus()
+                    taskList.dragRows = Backend.rows
+                    taskList.dragInbox = win.inboxId()
+                    taskList.dragRow = entry.modelData
+                } else {
+                    taskList.dropDragged()
+                }
+            }
+            onCentroidChanged: if (active) taskList.dragMoved(centroid.scenePosition)
+        }
+        // A refresh that rebuilds the list mid-drag ends it.
+        Component.onDestruction: if (taskList.dragRow && taskList.dragRow.key === modelData.key) taskList.dragRow = null
+
+        Loader {
+            id: loader
+            width: parent.width
+            sourceComponent: entry.isSection ? sectionComponent : taskComponent
+        }
+        Component {
+            id: taskComponent
+            TaskRow {
+                task: entry.modelData
+                selected: entry.current
+                draggable: true
+                showProject: taskList.grouped
+                groupedByDay: taskList.grouped
+                narrow: taskList.width < 560
+                onSelectRequested: { taskList.select(entry.index); win.focusList() }
+                onCompleteRequested: Backend.complete(entry.modelData.id)
+                onScheduleRequested: { taskList.select(entry.index); schedulePicker.openFor(entry.modelData) }
+                onMoveRequested: { taskList.select(entry.index); win.moveTask(entry.modelData) }
+                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                onOpenRequested: { taskList.select(entry.index); taskDetail.openFor(entry.modelData.id) }
+            }
+        }
+        Component {
+            id: sectionComponent
+            SectionRow {
+                section: entry.modelData
+                selected: entry.current
+                draggable: true
+                onSelectRequested: { taskList.select(entry.index); win.focusList() }
+                onAddRequested: { taskList.select(entry.index); addField.start() }
+                onDeleteRequested: { taskList.select(entry.index); win.deleteRow(entry.modelData) }
+                onRenameRequested: { taskList.select(entry.index); sectionDialog.openRenameSection(entry.modelData) }
+            }
+        }
+    }
+
     component DropLine: Rectangle {
         height: 2
         radius: 1
-        color: theme.accent
+        color: Theme.accent
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             x: -4
             width: 8
             height: 8
             radius: 4
-            color: theme.accent
+            color: Theme.accent
         }
     }
 
@@ -1148,7 +1176,7 @@ ApplicationWindow {
         property int count: 0
         // Set for projects, which get a menu; the fixed lists don't.
         property var project: null
-        readonly property bool current: backend.view === view
+        readonly property bool current: Backend.view === view
         // A dragged task would land here.
         readonly property bool dropHere: taskList.dropTarget !== null && taskList.dropTarget.view === view
 
@@ -1164,11 +1192,11 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.leftMargin: 8
             anchors.rightMargin: 8
-            radius: Math.min(6, theme.radius)
-            color: item.dropHere ? Qt.alpha(theme.accent, 0.18) : item.current ? theme.tint(0.08)
-                 : itemHover.hovered ? theme.tint(0.04) : "transparent"
+            radius: Math.min(6, Theme.radius)
+            color: item.dropHere ? Qt.alpha(Theme.accent, 0.18) : item.current ? Theme.tint(0.08)
+                 : itemHover.hovered ? Theme.tint(0.04) : "transparent"
             border.width: item.dropHere ? 1 : 0
-            border.color: theme.accent
+            border.color: Theme.accent
         }
         Rectangle {
             visible: item.current
@@ -1177,7 +1205,7 @@ ApplicationWindow {
             anchors.verticalCenter: parent.verticalCenter
             width: 3
             height: 18
-            color: theme.accent
+            color: Theme.accent
         }
 
         RowLayout {
@@ -1189,7 +1217,7 @@ ApplicationWindow {
             ListIcon {
                 visible: item.glyph !== ""
                 kind: item.glyph
-                color: item.current ? theme.accent : theme.softForeground
+                color: item.current ? Theme.accent : Theme.softForeground
                 Layout.preferredWidth: 18
                 Layout.preferredHeight: 18
             }
@@ -1212,13 +1240,13 @@ ApplicationWindow {
                 textFormat: Text.PlainText
                 elide: Text.ElideRight
                 font.pixelSize: 14
-                color: item.current ? theme.foreground : theme.softForeground
+                color: item.current ? Theme.foreground : Theme.softForeground
             }
             Label {
                 visible: item.count > 0
-                text: item.count.toLocaleString(Qt.locale(), 'f', 0)
+                text: item.count.toLocaleString(Translator.locale, 'f', 0)
                 font.pixelSize: 12
-                color: theme.dimForeground
+                color: Theme.dimForeground
             }
             Label {
                 visible: item.project !== null && (itemHover.hovered || item.current)
@@ -1226,14 +1254,14 @@ ApplicationWindow {
                 font.pixelSize: 16
                 leftPadding: 4
                 rightPadding: 4
-                color: moreHover.hovered ? theme.accent : theme.dimForeground
+                color: moreHover.hovered ? Theme.accent : Theme.dimForeground
                 HoverHandler { id: moreHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: item.openMenu() }
             }
         }
 
         HoverHandler { id: itemHover; cursorShape: Qt.PointingHandCursor }
-        TapHandler { onTapped: { backend.showView(item.view); win.focusList() } }
+        TapHandler { onTapped: { Backend.showView(item.view); win.focusList() } }
         opacity: item.project && projectList.dragProject && projectList.dragProject.id === item.project.id ? 0.35 : 1
         DragHandler {
             target: null

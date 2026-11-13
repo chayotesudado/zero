@@ -205,6 +205,8 @@ void Backend::refresh() {
     if (!signedIn())
         return;
     const int generation = m_generation;
+    // Signing out (or in as someone else) meanwhile makes these answers stale.
+    const QString token = m_client.token();
     // Projects and sections first: the Inbox view needs the Inbox's id,
     // every view shows project names, and project views their sections.
     struct Answers {
@@ -213,7 +215,9 @@ void Backend::refresh() {
         int pending = 2;
     };
     auto answers = std::make_shared<Answers>();
-    auto settled = [this, generation, answers] {
+    auto settled = [this, generation, answers, token] {
+        if (m_client.token() != token)
+            return;
         if (!answers->projectsError.isEmpty()) {
             loadFailed(answers->projectsError.message);
             return;
@@ -974,11 +978,11 @@ void Backend::undoFailed(const Step &step, const ApiError &error) {
     emit historyChanged();
 }
 
-QVariantMap Backend::undoDeletes() const {
+QVariant Backend::undoDeletes() const {
     if (m_undo.isEmpty() || m_undo.last().kind != Step::Added)
-        return {};
+        return QVariantMap();
     const Step &step = m_undo.last();
-    return {{"id", step.taskId}, {"text", step.task.content.isEmpty() ? step.text : step.task.content}};
+    return QVariantMap{{"id", step.taskId}, {"text", step.task.content.isEmpty() ? step.text : step.task.content}};
 }
 
 void Backend::undo() {
@@ -1692,10 +1696,10 @@ void Backend::applyReorder(const Step &step, bool forward, std::function<void(co
 
 // ------------------------------------------------------------ subtasks
 
-QVariantMap Backend::taskById(const QString &taskId) const {
+QVariant Backend::taskById(const QString &taskId) const {
     const Task *task = findTask(taskId);
     if (!task)
-        return {};
+        return QVariantMap();
     QVariantMap map = Tasks::toVariant(*task, QDateTime::currentDateTime(), m_projectsById, m_depths.value(taskId));
     // Where it lives, as the move picker names it.
     QString path = m_projectsById.value(task->projectId).inbox ? tr("Inbox") : m_projectsById.value(task->projectId).name;

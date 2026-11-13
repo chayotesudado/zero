@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Names a new project; Enter creates it and opens it.
 Popup {
@@ -16,7 +18,7 @@ Popup {
 
     function create() {
         if (field.text.trim() === "") return
-        backend.createProject(field.text, swatches.selected)
+        Backend.createProject(field.text, swatches.selected)
         close()
     }
 
@@ -25,9 +27,8 @@ Popup {
     anchors.centerIn: Overlay.overlay
     width: Math.min(swatches.implicitWidth + 40, parent ? parent.width - 48 : 420)
     padding: 20
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     ColumnLayout {
         anchors.fill: parent
@@ -37,14 +38,13 @@ Popup {
             text: qsTr("New project")
             font.pixelSize: 16
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         TextField {
             id: field
             Layout.fillWidth: true
             placeholderText: qsTr("Name")
-            Material.roundedScale: theme.radius
             onAccepted: dialog.create()
             // Down (or Tab) goes on to the colors.
             Keys.onDownPressed: swatches.forceActiveFocus()
@@ -61,13 +61,13 @@ Popup {
             Item { Layout.fillWidth: true }
             Button { text: qsTr("Cancel"); flat: true; onClicked: dialog.close() }
             Button {
+                id: primaryButton
                 text: qsTr("Create")
                 highlighted: true
                 enabled: field.text.trim() !== ""
-                Material.roundedScale: theme.radius
                 contentItem: Label {
-                    text: parent.text
-                    color: theme.accentForeground
+                    text: primaryButton.text
+                    color: Theme.accentForeground
                     font.pixelSize: 14
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
@@ -76,9 +76,9 @@ Popup {
                 background: Rectangle {
                     implicitWidth: 96
                     implicitHeight: 38
-                    radius: Math.min(6, theme.radius)
-                    color: theme.accent
-                    opacity: parent.enabled ? (parent.down ? 0.8 : 1) : 0.35
+                    radius: Math.min(6, Theme.radius)
+                    color: Theme.accent
+                    opacity: primaryButton.enabled ? (primaryButton.down ? 0.8 : 1) : 0.35
                 }
                 onClicked: dialog.create()
             }

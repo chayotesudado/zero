@@ -5,24 +5,23 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
-#include <QQmlContext>
 #include <QQuickStyle>
 #include <QUrl>
 
 #include "backend.h"
 #include "cli.h"
 #include "credentials.h"
+#include "qmlsingletons.h"
 #include "theme.h"
 #include "translator.h"
 
-static const char *version = "0.3.4";
+static const char *version = "0.3.5";
 
 int main(int argc, char *argv[]) {
     QStringList arguments;
     for (int i = 0; i < argc; ++i)
         arguments << QString::fromLocal8Bit(argv[i]);
 
-    Credentials::migrateLegacy();
 
     // The bar plugin runs these every few minutes, so they stay off the GUI
     // stack entirely and need no display.
@@ -55,9 +54,10 @@ int main(int argc, char *argv[]) {
 
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
-    engine.rootContext()->setContextProperty("translator", &translator);
-    engine.rootContext()->setContextProperty("theme", &theme);
-    engine.rootContext()->setContextProperty("backend", &backend);
+    // QML's Theme, Backend and Translator singletons are these.
+    ThemeSingleton::instance = &theme;
+    BackendSingleton::instance = &backend;
+    TranslatorSingleton::instance = &translator;
     engine.load(QUrl("qrc:/Main.qml"));
     if (engine.rootObjects().isEmpty())
         return 1;

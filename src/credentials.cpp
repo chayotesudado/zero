@@ -49,20 +49,3 @@ QString Credentials::clear() const {
         return QCoreApplication::translate("Credentials", "Couldn't remove %1.").arg(m_path);
     return {};
 }
-
-void Credentials::migrateLegacy(const QString &legacyPath, const QString &path) {
-    const QString from = legacyPath.isEmpty()
-        ? QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/ticked/token" : legacyPath;
-    const QString to = path.isEmpty() ? defaultPath() : path;
-    if (QFile::exists(to) || !QFile::exists(from))
-        return;
-    const QString directory = QFileInfo(to).absolutePath();
-    if (!QDir().mkpath(directory))
-        return;
-    QFile::setPermissions(directory, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
-    if (QFile::rename(from, to)) {
-        QFile::setPermissions(to, QFile::ReadOwner | QFile::WriteOwner);
-        // Only removes the old folder if nothing else is in it.
-        QDir().rmdir(QFileInfo(from).absolutePath());
-    }
-}

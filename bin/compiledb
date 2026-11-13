@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Writes build/compile_commands.json, so clangd (in Zed, say) finds the Qt
+headers. qmake can't, so this asks make what it would run, for the app and,
+once bin/test has made it, the tests."""
+import json, os, shlex, subprocess, sys
+
+root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+entries = []
+for build in (os.path.join(root, "build"), os.path.join(root, "build", "tests")):
+    if not os.path.exists(os.path.join(build, "Makefile")):
+        continue
+    out = subprocess.run(["make", "-n", "-B", "-C", build], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        words = shlex.split(line) if line.lstrip().startswith(("g++", "c++", "clang++")) else []
+        if "-c" not in words or "-o" not in words:
+            continue
+        source = next((w for w in words if w.endswith(".cpp")), None)
+        if source:
+            entries.append({"directory": build, "arguments": words,
+                            "file": os.path.normpath(os.path.join(build, source))})
+os.makedirs(os.path.join(root, "build"), exist_ok=True)
+with open(os.path.join(root, "build", "compile_commands.json"), "w") as f:
+    json.dump(entries, f, indent=1)
+print(f"Wrote build/compile_commands.json ({len(entries)} files)", file=sys.stderr)

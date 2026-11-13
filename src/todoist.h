@@ -15,7 +15,7 @@ struct ApiError {
     QString message;
     int status = 0;
 
-    ApiError(const QString &message = {}, int status = 0) : message(message), status(status) {}
+    ApiError(const QString &text = {}, int code = 0) : message(text), status(code) {}
     bool isEmpty() const { return message.isEmpty(); }
     bool isAuth() const { return status == 401 || status == 403; }
     bool isNetwork() const { return !isEmpty() && status == 0; }

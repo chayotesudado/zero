@@ -4,9 +4,6 @@
         <file alias="TaskRow.qml">TaskRow.qml</file>
         <file alias="TaskDetail.qml">TaskDetail.qml</file>
         <file alias="Grip.qml">Grip.qml</file>
-        <file alias="zero-wordmark.png">zero-wordmark.png</file>
-        <file alias="zero-wordmark@2x.png">zero-wordmark@2x.png</file>
-        <file alias="zero-wordmark@4x.png">zero-wordmark@4x.png</file>
         <file alias="ListIcon.qml">ListIcon.qml</file>
         <file alias="SignInView.qml">SignInView.qml</file>
         <file alias="HelpOverlay.qml">HelpOverlay.qml</file>

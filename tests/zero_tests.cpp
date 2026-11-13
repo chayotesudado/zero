@@ -8,6 +8,7 @@
 #include "backend.h"
 #include "credentials.h"
 #include "fakeserver.h"
+#include "pixelart.h"
 #include "tasks.h"
 #include "theme.h"
 #include "todoist.h"
@@ -70,9 +71,17 @@ class ZeroTests : public QObject {
     Q_OBJECT
 
 private slots:
-    void init() {
-        qunsetenv("TODOIST_API_TOKEN");
-        qunsetenv("ZERO_API_URL");
+    // The drawn logo is the brand art: its faces, plus two pixels of depth.
+    void pixelArtIsTheLogo() {
+        const auto lockup = PixelArt::layout("lockup");
+        QCOMPARE(lockup.width, 55);
+        QCOMPARE(lockup.height, 10);
+        QCOMPARE(lockup.face.size(), 154);
+        const auto check = PixelArt::layout("check");
+        QCOMPARE(check.width, 14);
+        QCOMPARE(check.height, 10);
+        QVERIFY(std::all_of(check.face.cbegin(), check.face.cend(), [](QPoint p) { return p.x() < 12; }));
+        QVERIFY(PixelArt::layout("nope").face.isEmpty());
     }
 
     void parsesDueDates() {
@@ -203,23 +212,6 @@ private slots:
         QVERIFY(!QFile::exists(credentials.path()));
     }
 
-    void movesTheOldTickedToken() {
-        QTemporaryDir dir;
-        const QString legacy = dir.path() + "/ticked/token", current = dir.path() + "/zero/token";
-        QDir().mkpath(dir.path() + "/ticked");
-        write(legacy, "old-token\n");
-        Credentials::migrateLegacy(legacy, current);
-        QVERIFY(!QFile::exists(legacy));
-        QVERIFY(!QDir(dir.path() + "/ticked").exists());
-        QCOMPARE(Credentials(current).read(), QString("old-token"));
-
-        // An existing token is never overwritten.
-        QDir().mkpath(dir.path() + "/ticked");
-        write(legacy, "older\n");
-        Credentials::migrateLegacy(legacy, current);
-        QCOMPARE(Credentials(current).read(), QString("old-token"));
-    }
-
     void clientFollowsPages() {
         FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
             if (request.headers.value("authorization") != "Bearer good")
@@ -288,6 +280,72 @@ private slots:
         client.projects([&](const QJsonArray &, const ApiError &) { done = true; });
         QTRY_VERIFY_WITH_TIMEOUT(done, 30000);
         QCOMPARE(calls, 500);
+    }
+
+    // Answers to a refresh made before signing out don't bring the old
+    // account's projects back.
+    void backendIgnoresAnswersAfterSigningOut() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            return {200, page({})};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        QTRY_VERIFY(!backend.busy());
+        backend.refresh();
+        backend.signOut();
+        QTRY_VERIFY(!backend.busy());
+        QVERIFY(!backend.signedIn());
+        QVERIFY(backend.projects().isEmpty());
+    }
+
+    // A task's link stays on Todoist's site whatever its id holds.
+    void taskLinksStayOnTodoist() {
+        Task t;
+        t.id = "6X7rM8997g3RQmvh";
+        QCOMPARE(t.url(), QString("https://app.todoist.com/app/task/6X7rM8997g3RQmvh"));
+        t.id = "../../evil?x=1#y";
+        QVERIFY(t.url().startsWith("https://app.todoist.com/app/task/"));
+        QVERIFY(!t.url().mid(33).contains('/'));
+        QVERIFY(!t.url().contains('?'));
+        QVERIFY(!t.url().contains('#'));
+    }
+
+    // A reply that isn't JSON came from Todoist, so it isn't a network error.
+    void badRepliesArentNetworkErrors() {
+        FakeServer server([](const FakeServer::Request &) -> FakeServer::Response { return {200, "<html>"}; });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Todoist client;
+        client.setToken("good");
+        ApiError error;
+        bool answered = false;
+        client.quickAdd("x", [&](const QJsonObject &, const ApiError &e) { error = e; answered = true; });
+        QTRY_VERIFY(answered);
+        QVERIFY(!error.isEmpty());
+        QVERIFY(!error.isNetwork());
+    }
+
+    // The language registry is read from Omarchy's path only, never from
+    // the filesystem root when OMARCHY_PATH is unset.
+    void readsTheLocaleRegistryOnlyFromOmarchy() {
+        QTemporaryDir dir;
+        QDir().mkpath(dir.path() + "/default/i18n");
+        QFile registry(dir.path() + "/default/i18n/locales.json");
+        QVERIFY(registry.open(QIODevice::WriteOnly));
+        registry.write(R"({"ar": {"formatLocale": "ar_SA@numbers=latn"}, "es": {"formatLocale": "es_MX"}})");
+        registry.close();
+        const QByteArray saved = qgetenv("OMARCHY_PATH");
+        qputenv("OMARCHY_PATH", dir.path().toUtf8());
+        QCOMPARE(Translator::formatLocale("es").name(), QString("es_MX"));
+        qunsetenv("OMARCHY_PATH");
+        QCOMPARE(Translator::formatLocale("es").name(), QLocale("es").name());
+        if (!saved.isEmpty())
+            qputenv("OMARCHY_PATH", saved);
     }
 
     void backendCompletesAndUndoes() {
@@ -464,13 +522,13 @@ private slots:
         // A completion undoes without asking.
         backend.complete("a");
         settle();
-        QVERIFY(backend.undoDeletes().isEmpty());
+        QVERIFY(backend.undoDeletes().toMap().isEmpty());
 
         // An add says which task undoing it would delete.
         backend.add("Milk");
         settle();
-        QCOMPARE(backend.undoDeletes().value("id").toString(), QString("new"));
-        QCOMPARE(backend.undoDeletes().value("text").toString(), QString("Milk"));
+        QCOMPARE(backend.undoDeletes().toMap().value("id").toString(), QString("new"));
+        QCOMPARE(backend.undoDeletes().toMap().value("text").toString(), QString("Milk"));
     }
 
     void backendRedoesAnAddWhereItWent() {
@@ -1075,7 +1133,7 @@ private slots:
         backend.showView("inbox");
         QTRY_COMPARE(backend.tasks().size(), 2);
         auto settle = [&] { QTRY_VERIFY(!backend.busy()); };
-        auto shown = [&] { return backend.taskById("a"); };
+        auto shown = [&] { return backend.taskById("a").toMap(); };
 
         // Changed at once, and sent as Todoist counts priority.
         server.requests.clear();
@@ -1108,7 +1166,7 @@ private slots:
         backend.editTask("a", {{"content", "Lost"}});
         settle();
         QCOMPARE(shown().value("content").toString(), QString("Call mum"));
-        QCOMPARE(backend.taskById("b").value("priority").toInt(), 4);
+        QCOMPARE(backend.taskById("b").toMap().value("priority").toInt(), 4);
         QVERIFY(backend.error().contains("Nope"));
     }
 
@@ -1359,7 +1417,7 @@ private slots:
         for (const auto &entry : backend.subtasksOf("p"))
             ids << entry.toMap().value("id").toString();
         QCOMPARE(ids, QStringList({"d", "c"}));
-        QCOMPARE(backend.taskById("c").value("parentId").toString(), QString("p"));
+        QCOMPARE(backend.taskById("c").toMap().value("parentId").toString(), QString("p"));
 
         // They can be completed and edited like any task.
         backend.complete("d");
@@ -1372,7 +1430,7 @@ private slots:
         QCOMPARE(server.requests.first().path(), QByteArray("/tasks/c"));
 
         backend.forgetSubtasks();
-        QVERIFY(backend.taskById("c").isEmpty());
+        QVERIFY(backend.taskById("c").toMap().isEmpty());
         QVERIFY(backend.subtasksOf("p").isEmpty());
     }
 
@@ -1655,9 +1713,9 @@ private slots:
         QVERIFY(QFile::setPermissions(command, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
         write(response, "{\"int\":0}");
         Theme theme(dir.path(), nullptr, command);
-        QCOMPARE(theme.radius(), 0);
+        QCOMPARE(theme.radius(), 0.0);
         write(response, "{\"int\":6}");
-        QTRY_COMPARE(theme.radius(), 6);
+        QTRY_COMPARE(theme.radius(), 6.0);
     }
 
     void translatorFallsBackToEnglish() {

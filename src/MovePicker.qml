@@ -1,7 +1,9 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import Zero
 
 // Picks where something moves: a task to a project or section, or a
 // project under another. Type to filter, arrows to choose, Enter to move.
@@ -19,7 +21,7 @@ Popup {
     readonly property var matches: {
         var query = filter.text.trim().toLowerCase()
         var out = []
-        for (var i = 0; i < items.length; i++)
+        for (let i = 0; i < items.length; i++)
             if (query === "" || items[i].path.toLowerCase().indexOf(query) >= 0)
                 out.push(items[i])
         return out
@@ -46,9 +48,8 @@ Popup {
     anchors.centerIn: Overlay.overlay
     width: Math.min(420, parent ? parent.width - 48 : 420)
     padding: 20
-    Material.roundedScale: theme.radius
-    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, theme.light ? 0.3 : 0.6) }
-    background: Rectangle { color: theme.darkBackground; border.color: theme.lighterBackground; radius: theme.radius }
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, Theme.light ? 0.3 : 0.6) }
+    background: Rectangle { color: Theme.darkBackground; border.color: Theme.lighterBackground; radius: Theme.radius }
 
     ColumnLayout {
         anchors.fill: parent
@@ -61,14 +62,13 @@ Popup {
             elide: Text.ElideRight
             font.pixelSize: 16
             font.bold: true
-            color: theme.foreground
+            color: Theme.foreground
         }
 
         TextField {
             id: filter
             Layout.fillWidth: true
             placeholderText: qsTr("Project or section")
-            Material.roundedScale: theme.radius
             Keys.onDownPressed: listView.incrementCurrentIndex()
             Keys.onUpPressed: listView.decrementCurrentIndex()
             onTextChanged: listView.currentIndex = 0
@@ -86,17 +86,18 @@ Popup {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
             delegate: Rectangle {
+                id: choice
                 required property var modelData
                 required property int index
-                readonly property bool here: modelData.key === picker.currentKey
+                readonly property bool here: choice.modelData.key === picker.currentKey
                 width: ListView.view.width
                 height: 36
-                radius: Math.min(6, theme.radius)
-                color: ListView.isCurrentItem ? theme.tint(0.08) : rowHover.hovered ? theme.tint(0.04) : "transparent"
+                radius: Math.min(6, Theme.radius)
+                color: ListView.isCurrentItem ? Theme.tint(0.08) : rowHover.hovered ? Theme.tint(0.04) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 12 + modelData.depth * 14
+                    anchors.leftMargin: 12 + choice.modelData.depth * 14
                     anchors.rightMargin: 12
                     spacing: 10
                     // A dot for a project, a dash for a section in it.
@@ -105,38 +106,38 @@ Popup {
                         Rectangle {
                             anchors.centerIn: parent
                             width: 8
-                            height: modelData.kind === "section" ? 2 : 8
-                            radius: modelData.kind === "section" ? 1 : 4
-                            color: modelData.kind === "top" ? "transparent"
-                                 : modelData.inbox ? theme.accent : modelData.color
-                            border.width: modelData.kind === "top" ? 1 : 0
-                            border.color: theme.muted
+                            height: choice.modelData.kind === "section" ? 2 : 8
+                            radius: choice.modelData.kind === "section" ? 1 : 4
+                            color: choice.modelData.kind === "top" ? "transparent"
+                                 : choice.modelData.inbox ? Theme.accent : choice.modelData.color
+                            border.width: choice.modelData.kind === "top" ? 1 : 0
+                            border.color: Theme.muted
                         }
                     }
                     Label {
                         Layout.fillWidth: true
-                        text: modelData.name
+                        text: choice.modelData.name
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
-                        color: modelData.kind === "section" ? theme.softForeground : theme.foreground
-                        font.pixelSize: modelData.kind === "section" ? 13 : 14
+                        color: choice.modelData.kind === "section" ? Theme.softForeground : Theme.foreground
+                        font.pixelSize: choice.modelData.kind === "section" ? 13 : 14
                     }
                     Label {
-                        visible: here
+                        visible: choice.here
                         text: qsTr("current")
-                        color: theme.muted
+                        color: Theme.muted
                         font.pixelSize: 12
                     }
                 }
                 HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: picker.choose(index) }
+                TapHandler { onTapped: picker.choose(choice.index) }
             }
         }
 
         Label {
             visible: picker.matches.length === 0
             text: qsTr("Nothing matches.")
-            color: theme.dimForeground
+            color: Theme.dimForeground
             font.pixelSize: 13
         }
     }

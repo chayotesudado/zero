@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QUrl>
 #include <QDate>
 #include <QDateTime>
 #include <QHash>
@@ -54,7 +55,7 @@ struct Task {
     bool hasTime() const { return dueTime.isValid(); }
     // Past its date, or due earlier today at a time that has passed.
     bool isOverdue(const QDateTime &now) const;
-    QString url() const { return "https://app.todoist.com/app/task/" + id; }
+    QString url() const { return "https://app.todoist.com/app/task/" + QString::fromLatin1(QUrl::toPercentEncoding(id)); }
 
     static Task fromJson(const QJsonObject &object);
 };

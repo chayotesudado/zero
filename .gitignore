@@ -4,3 +4,4 @@
 *.pkg.tar.*
 *.qmlc
 *.jsc
+/.qmlls.ini

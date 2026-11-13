@@ -1,10 +1,18 @@
-# Zero
+<h1><img src="docs/zero.png" alt="Zero" width="220" height="40"></h1>
 
 Todoist for Omarchy. Today, Upcoming, the Inbox, and every project in one
 window you drive from the keyboard, plus a bar widget that shows what's due
 today and lets you add to the Inbox without opening anything.
 
 ![Zero showing the Upcoming list](docs/screenshot.png)
+
+Zero follows your Omarchy theme as you switch it: its colors, its corner
+rounding, and the pixel logo, drawn in the theme's own text color. A
+project's title takes a soft shade of the project's color.
+
+| A project, with sections and subtasks | A task opened to edit | A light theme |
+| --- | --- | --- |
+| ![The Work project](docs/project.png) | ![A task's details](docs/task.png) | ![Zero in a light theme](docs/light.png) |
 
 Zero is an unofficial client, not affiliated with or endorsed by Doist, the
 makers of Todoist. Todoist and its logo are Doist's trademarks.
@@ -62,7 +70,7 @@ heading or one of its tasks selected. Type after it and the task lands
 there; clear it and the task goes to the Inbox, or wherever a `#Project` or
 date you type sends it. Upcoming, the Inbox, and the bar widget start empty
 and add to the Inbox. Hovering a task (or selecting it) shows Open, Date,
-and Move buttons too.
+Move, and Delete buttons too.
 
 Enter (or a double-click, or Open on hover) opens a task: its name and
 description to edit, its priority, date, and project, and its subtasks,
@@ -77,7 +85,7 @@ project or the Inbox, or onto Today becomes due today. Projects drag among
 their siblings in the sidebar; Shift+M nests them.
 
 A project's sections show as headings in its list, empty ones included,
-and new ones are made with S or "+ Add section" at the end of the list.
+and new ones are made with S.
 Select a heading with J/K or a click: N then adds into that section, Enter
 renames it, Alt+J/K moves it, and Delete deletes it along with its tasks,
 as Todoist does. Deleting a task
@@ -97,9 +105,9 @@ Everything is saved to Todoist as you go, so there's never unsaved work.
 
 ## Bar widget
 
-[omarchy-zero](https://github.com/chayotesudado/omarchy-zero) puts Todoist's
-mark on the Omarchy bar, with what's due today and an add-to-Inbox box in its
-popup. It talks to Todoist only through `zero today --json`, `zero add`, and
+[omarchy-zero](https://github.com/chayotesudado/omarchy-zero) puts Zero's
+pixel check on the Omarchy bar, with what's due today and an add-to-Inbox box
+in its popup. It talks to Todoist only through `zero today --json`, `zero add`, and
 `zero done`, so it never handles the token.
 
 ## Command line
@@ -126,3 +134,13 @@ bin/install  # package and install
 ```
 
 `ZERO_API_URL` points the app at another server, which the tests use.
+
+Editors: `bin/build` also writes `build/compile_commands.json` for clangd
+and `.qmlls.ini` for qmlls, so both know the project's types.
+
+## License
+
+Zero is free and unencumbered software released into the public domain:
+do whatever you want with it. See [LICENSE](LICENSE) (the Unlicense). The
+Lucide icon paths and the theme handling borrowed from Omacut and Monologue
+keep their own notices, in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
