@@ -348,6 +348,7 @@ ApplicationWindow {
                 color: theme.darkBackground
 
                 ColumnLayout {
+                    id: sidebarColumn
                     anchors.fill: parent
                     anchors.topMargin: 18
                     anchors.bottomMargin: 12
@@ -358,10 +359,30 @@ ApplicationWindow {
                     // sharp, lined up with the lists' icons below. PNGs at each
                     // scale, not the SVG, so it needs no Qt SVG; Qt picks the
                     // @2x or @4x one on a HiDPI screen.
+                    //
+                    // It sits on one line with the page title: the middle of
+                    // its letters' bright faces (rows 0-7 of 10, so 12 px down
+                    // at 3x; the bottom rows are their darker depth) on the
+                    // middle of the title's capitals. Below it, 1.5 times the
+                    // gap between the lists' icons, so it reads as a header,
+                    // not the first item.
                     Image {
+                        readonly property real faceMiddle: 12
+                        FontMetrics { id: titleMetrics; font: pageTitle.font }
+                        // Where the title's capitals are middled: its baseline,
+                        // less half an H. Both columns start at the window's
+                        // top, so the title's y in its column is its y here.
+                        // Naming the font makes this re-measure when it changes;
+                        // the call alone isn't a dependency QML tracks.
+                        readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
+                        readonly property real titleCapMiddle: pageHeader.y + pageTitle.y + pageTitle.baselineOffset
+                                                               - capHeight / 2
+                        readonly property real wantedTop: titleCapMiddle - faceMiddle - sidebarColumn.anchors.topMargin
                         Layout.leftMargin: 20
-                        Layout.topMargin: 2
-                        Layout.bottomMargin: 14
+                        // A number however the fonts come out, so layout never
+                        // gets NaN.
+                        Layout.topMargin: isFinite(wantedTop) ? Math.max(0, Math.round(wantedTop)) : 4
+                        Layout.bottomMargin: 22
                         source: "qrc:/zero-wordmark.png"
                         fillMode: Image.PreserveAspectFit
                         Layout.preferredWidth: 117
@@ -485,6 +506,7 @@ ApplicationWindow {
                 spacing: 0
 
                 RowLayout {
+                    id: pageHeader
                     Layout.fillWidth: true
                     Layout.leftMargin: win.compact ? 16 : 32
                     Layout.rightMargin: win.compact ? 16 : 24
@@ -504,6 +526,7 @@ ApplicationWindow {
                         ToolTip.delay: 400
                     }
                     Label {
+                        id: pageTitle
                         Layout.fillWidth: win.compact
                         text: backend.viewName
                         textFormat: Text.PlainText
