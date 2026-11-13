@@ -22,9 +22,6 @@ makers of Todoist. Todoist and its logo are Doist's trademarks.
    [omarchy-zero](https://github.com/chayotesudado/omarchy-zero):
    `omarchy plugin add https://github.com/chayotesudado/omarchy-zero.git --enable`
 
-Upgrading from Ticked, Zero's old name: the first run moves
-`~/.config/ticked/token` over, and the package replaces `ticked`.
-
 ## Shortcuts
 
 | Key | Action |
