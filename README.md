@@ -25,6 +25,12 @@ makers of Todoist. Todoist and its logo are Doist's trademarks.
 Upgrading from Ticked, Zero's old name: the first run moves
 `~/.config/ticked/token` over, and the package replaces `ticked`.
 
+The package is `zero-todoist` (the command is still `zero`). Up to 0.3.4 it
+was `zero`, the same name as an unrelated coding agent in the AUR, which AUR
+helpers like `yay` (run by Omarchy's update) would install over it. Installing
+`zero-todoist` asks to remove the old `zero` package; say yes. If the agent got
+installed that way, `sudo pacman -R zero-debug` removes what it left behind.
+
 ## Shortcuts
 
 | Key | Action |

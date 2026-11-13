@@ -1,4 +1,8 @@
-pkgname=zero
+# Not "zero": the AUR has an unrelated package by that name (a coding agent),
+# and AUR helpers like yay, which Omarchy's update runs, take a local package
+# for the AUR one of the same name and "upgrade" it to that. The command is
+# still zero.
+pkgname=zero-todoist
 pkgver=0.3.4
 pkgrel=1
 pkgdesc='Todoist for Omarchy: today, upcoming, projects, and quick add from the keyboard'
@@ -6,8 +10,10 @@ arch=('x86_64' 'aarch64')
 license=('MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland')
 makedepends=('gcc' 'make')
-# Zero was called Ticked before.
-conflicts=('ticked')
+# Zero was called Ticked before, and its package was "zero" until 0.3.4.
+# Anything else named zero also installs /usr/bin/zero, the AUR coding agent
+# included, so pacman asks before one replaces the other.
+conflicts=('ticked' 'zero')
 replaces=('ticked')
 source=()
 sha256sums=()
