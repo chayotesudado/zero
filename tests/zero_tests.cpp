@@ -348,6 +348,34 @@ private slots:
             qputenv("OMARCHY_PATH", saved);
     }
 
+    // Upcoming has no end date: everything dated, as far out as it goes.
+    void upcomingShowsEveryDatedTask() {
+        QTemporaryDir dir;
+        Credentials credentials(dir.path() + "/token");
+        QCOMPARE(credentials.write("good"), QString());
+        QStringList filters;
+        FakeServer server([&filters](const FakeServer::Request &request) -> FakeServer::Response {
+            if (request.path() == "/projects")
+                return {200, page(projects)};
+            if (request.path() == "/tasks/filter") {
+                const QString filter = QUrlQuery(QUrl(QString::fromUtf8(request.target)).query())
+                                           .queryItemValue("query", QUrl::FullyDecoded);
+                filters << QUrl::fromPercentEncoding(filter.toUtf8());
+                if (filters.last() == "!no date")
+                    return {200, page({task("far", "Renew passport", iso(40)), task("soon", "Call back", iso(1))})};
+            }
+            return {200, page({})};
+        });
+        qputenv("ZERO_API_URL", server.url().toUtf8());
+        Backend backend(credentials);
+        QTRY_VERIFY(backend.loaded());
+        backend.showView("upcoming");
+        QTRY_COMPARE(backend.tasks().size(), 2);
+        QVERIFY(filters.contains("!no date"));
+        // In date order, the one 40 days out last.
+        QCOMPARE(backend.tasks().last().toMap().value("id").toString(), QString("far"));
+    }
+
     void backendCompletesAndUndoes() {
         QTemporaryDir dir;
         Credentials credentials(dir.path() + "/token");

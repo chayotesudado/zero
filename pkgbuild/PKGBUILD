@@ -3,7 +3,7 @@
 # for the AUR one of the same name and "upgrade" it to that. The command is
 # still zero.
 pkgname=zero-todoist
-pkgver=0.3.5
+pkgver=0.3.6
 pkgrel=1
 pkgdesc='Todoist for Omarchy: today, upcoming, projects, and quick add from the keyboard'
 arch=('x86_64' 'aarch64')

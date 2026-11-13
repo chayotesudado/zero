@@ -15,7 +15,7 @@
 #include "theme.h"
 #include "translator.h"
 
-static const char *version = "0.3.5";
+static const char *version = "0.3.6";
 
 int main(int argc, char *argv[]) {
     QStringList arguments;
