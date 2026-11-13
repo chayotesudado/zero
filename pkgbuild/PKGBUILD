@@ -7,14 +7,14 @@ pkgver=0.3.5
 pkgrel=1
 pkgdesc='Todoist for Omarchy: today, upcoming, projects, and quick add from the keyboard'
 arch=('x86_64' 'aarch64')
-license=('MIT')
+# Zero is public domain; the Lucide icon paths and the theme handling keep
+# their own notices (THIRD-PARTY-NOTICES.md).
+license=('Unlicense AND ISC AND MIT')
 depends=('qt6-base' 'qt6-declarative' 'qt6-wayland')
 makedepends=('gcc' 'make')
-# Zero was called Ticked before, and its package was "zero" until 0.3.4.
-# Anything else named zero also installs /usr/bin/zero, the AUR coding agent
-# included, so pacman asks before one replaces the other.
-conflicts=('ticked' 'zero')
-replaces=('ticked')
+# The AUR's zero installs /usr/bin/zero too, so pacman asks before one
+# replaces the other.
+conflicts=('zero')
 source=()
 sha256sums=()
 
@@ -27,8 +27,9 @@ package() {
   cd "$startdir/.."
   install -Dm755 build/zero "$pkgdir/usr/bin/zero"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 THIRD-PARTY-NOTICES.md "$pkgdir/usr/share/licenses/$pkgname/THIRD-PARTY-NOTICES.md"
   # The pixel-art icon: drawn PNGs at each size, which stay sharp where a
-  # scaled SVG would blur, the SVG for any other size, and a one-color Z.
+  # scaled SVG would blur, the SVG for any other size, and a one-color check.
   for size in 16 32 48 64 128 256 512; do
     install -Dm644 "$startdir/icons/zero-$size.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/zero.png"
   done

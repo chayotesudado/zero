@@ -212,23 +212,6 @@ private slots:
         QVERIFY(!QFile::exists(credentials.path()));
     }
 
-    void movesTheOldTickedToken() {
-        QTemporaryDir dir;
-        const QString legacy = dir.path() + "/ticked/token", current = dir.path() + "/zero/token";
-        QDir().mkpath(dir.path() + "/ticked");
-        write(legacy, "old-token\n");
-        Credentials::migrateLegacy(legacy, current);
-        QVERIFY(!QFile::exists(legacy));
-        QVERIFY(!QDir(dir.path() + "/ticked").exists());
-        QCOMPARE(Credentials(current).read(), QString("old-token"));
-
-        // An existing token is never overwritten.
-        QDir().mkpath(dir.path() + "/ticked");
-        write(legacy, "older\n");
-        Credentials::migrateLegacy(legacy, current);
-        QCOMPARE(Credentials(current).read(), QString("old-token"));
-    }
-
     void clientFollowsPages() {
         FakeServer server([](const FakeServer::Request &request) -> FakeServer::Response {
             if (request.headers.value("authorization") != "Bearer good")

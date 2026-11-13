@@ -22,7 +22,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < argc; ++i)
         arguments << QString::fromLocal8Bit(argv[i]);
 
-    Credentials::migrateLegacy();
 
     // The bar plugin runs these every few minutes, so they stay off the GUI
     // stack entirely and need no display.

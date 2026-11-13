@@ -17,8 +17,6 @@ public:
     QString clear() const;
 
     static QString defaultPath();
-    // The app was called Ticked before; moves its token over once.
-    static void migrateLegacy(const QString &legacyPath = {}, const QString &path = {});
 
 private:
     QString m_path;
