@@ -521,20 +521,20 @@ ApplicationWindow {
                     }
                     // The list's name in the logo's lettering, its faces on
                     // the logo's line. Long names drop to two times, then
-                    // are cut short; ones the lettering can't draw (emoji,
-                    // other scripts) use the regular font, on the same line.
+                    // are cut short. Characters the lettering lacks (©,
+                    // emoji, other scripts) are drawn in the regular font,
+                    // as tall as its capitals, in their place.
                     Item {
                         id: pageTitle
                         Layout.fillWidth: true
                         Layout.preferredHeight: win.headerHeight
-                        readonly property string text: backend.viewName
                         // Where the faces' middle row sits, as in the logo.
                         readonly property real faceMiddle: 12
 
                         PixelText {
                             id: pixelTitle
-                            visible: supported
-                            text: pageTitle.text
+                            text: backend.viewName
+                            font: win.font
                             maxScale: 3
                             minScale: 2
                             maxWidth: pageTitle.width
@@ -543,25 +543,7 @@ ApplicationWindow {
                             deepColor: win.pixelDeep
                             y: pageTitle.faceMiddle - 4 * pixelScale - faceTop
                             Accessible.role: Accessible.Heading
-                            Accessible.name: pageTitle.text
-                        }
-                        Label {
-                            id: plainTitle
-                            visible: !pixelTitle.supported
-                            width: parent.width
-                            text: pageTitle.text
-                            textFormat: Text.PlainText
-                            font.pixelSize: 20
-                            font.bold: true
-                            color: theme.foreground
-                            elide: Text.ElideRight
-                            FontMetrics { id: titleMetrics; font: plainTitle.font }
-                            // The capitals' middle on the faces' middle.
-                            // Naming the font makes this re-measure when it
-                            // changes; the call alone isn't a dependency.
-                            readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
-                            readonly property real wantedY: pageTitle.faceMiddle - baselineOffset + capHeight / 2
-                            y: isFinite(wantedY) ? Math.round(wantedY) : 0
+                            Accessible.name: backend.viewName
                         }
                     }
                     BusyIndicator {

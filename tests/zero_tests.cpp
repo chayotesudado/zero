@@ -83,7 +83,7 @@ private slots:
         for (const QPoint &p : lockup.face)
             if (p.x() >= 16)
                 letters.append(p - QPoint(16, 0));
-        auto zero = PixelText::layoutText("zero");
+        auto zero = PixelText::layoutText("ZERO");
         QCOMPARE(zero.shown, QString("ZERO"));
         QCOMPARE(zero.width, 39);
         QCOMPARE(zero.height, 10);
@@ -98,40 +98,67 @@ private slots:
     }
 
     void pixelTextHandlesAnyTitle() {
-        // Accents are drawn above, in room kept only when there are some.
-        const auto upcoming = PixelText::layoutText("Próximo");
+        // Lowercase stays lowercase, the same height as capitals until a
+        // descender needs two rows more.
+        const auto inbox = PixelText::layoutText("Inbox");
+        QCOMPARE(inbox.shown, QString("Inbox"));
+        QCOMPARE(inbox.height, 10);
+        QCOMPARE(PixelText::layoutText("Upcoming").height, 12);
+        QVERIFY(PixelText::layoutText("inbox").face != PixelText::layoutText("INBOX").face);
+
+        // Accents are drawn above, in room kept only when there are some:
+        // three rows over a capital, one over a lowercase body.
+        const auto upcoming = PixelText::layoutText("PRÓXIMO");
         QVERIFY(upcoming.supported);
-        QCOMPARE(upcoming.faceTop, 5);
-        QCOMPARE(upcoming.height, 15);
-        QVERIFY(std::any_of(upcoming.face.cbegin(), upcoming.face.cend(), [](QPoint p) { return p.y() < 5; }));
-        QCOMPARE(PixelText::layoutText("Señales, año 2026: ¡ya!").supported, false); // no ¡
+        QCOMPARE(upcoming.faceTop, 3);
+        QCOMPARE(upcoming.height, 13);
+        QCOMPARE(upcoming.marks.size(), 4);
+        QVERIFY(std::all_of(upcoming.marks.cbegin(), upcoming.marks.cend(), [](QPoint p) { return p.y() < 2; }));
+        QCOMPARE(PixelText::layoutText("Próximo").faceTop, 1);
+        QVERIFY(PixelText::layoutText("Inbox").marks.isEmpty());
+        // í loses its dot to the accent.
+        const auto i = PixelText::layoutText("i"), iAcute = PixelText::layoutText("í");
+        QCOMPARE(i.face.size(), 14);
+        QCOMPARE(iAcute.faceTop, 1);
+        QCOMPARE(iAcute.face.size(), 12);
         QVERIFY(PixelText::layoutText("Señales, año 2026 (casa & trabajo) #1 - ok?").supported);
-        // Characters it can't draw leave it to the plain font.
-        QVERIFY(!PixelText::layoutText("🏠 Home").supported);
-        QVERIFY(!PixelText::layoutText("Дом").supported);
+
+        // Characters it lacks are drawn in the plain font, in place, the
+        // rest in pixels; neighbors share one run so emoji stay whole.
+        const auto mixed = PixelText::layoutText("Zero © 2026");
+        QVERIFY(!mixed.supported);
+        QCOMPARE(mixed.runs.size(), 1);
+        QCOMPARE(mixed.runs.first().text, QString("©"));
+        QVERIFY(mixed.runs.first().x > PixelText::layoutText("Zero ").width);
+        QVERIFY(!mixed.face.isEmpty());
+        const auto family = PixelText::layoutText("👨‍👩‍👧 Home");
+        QCOMPARE(family.runs.size(), 1);
+        QCOMPARE(family.runs.first().text, QString("👨‍👩‍👧"));
+        QCOMPARE(PixelText::layoutText("Дом").runs.first().text, QString("Дом"));
+        // Wider at bigger scales, since the plain font grows with them.
+        QVERIFY(PixelText::layoutText("©", 2).font.pixelSize() < PixelText::layoutText("©", 3).font.pixelSize());
+
         // Spaces collapse; nothing draws nothing.
-        QCOMPARE(PixelText::layoutText("  a   b ").shown, QString("A B"));
+        QCOMPARE(PixelText::layoutText("  a   b ").shown, QString("a b"));
         QCOMPARE(PixelText::layoutText("").width, 0);
 
         // The biggest scale that fits, then cut short with an ellipsis.
         int scale = 0;
-        const int inbox = PixelText::layoutText("Inbox").width;
-        QCOMPARE(PixelText::fit("Inbox", inbox * 3, 3, 2, &scale).shown, QString("INBOX"));
+        QCOMPARE(PixelText::fit("Inbox", inbox.width * 3, 3, 2, &scale).shown, QString("Inbox"));
         QCOMPARE(scale, 3);
-        PixelText::fit("Inbox", inbox * 3 - 1, 3, 2, &scale);
+        PixelText::fit("Inbox", inbox.width * 3 - 1, 3, 2, &scale);
         QCOMPARE(scale, 2);
         const auto cut = PixelText::fit("Planificación del año", 200, 3, 2, &scale);
         QCOMPARE(scale, 2);
         QVERIFY(cut.shown.endsWith(QChar(0x2026)));
-        QVERIFY(!cut.shown.contains(QStringLiteral(" \u2026")));
+        QVERIFY(!cut.shown.contains(QStringLiteral(" …")));
         QVERIFY(cut.width * 2 <= 200);
-        QVERIFY(PixelText::fit("Inbox", -1, 3, 2, &scale).supported);
-        QCOMPARE(scale, 3);
-    }
-
-    void init() {
-        qunsetenv("TODOIST_API_TOKEN");
-        qunsetenv("ZERO_API_URL");
+        // An emoji is cut whole, never split in half.
+        const auto emoji = PixelText::fit("Ab 👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧", 120, 3, 2, &scale);
+        QVERIFY(emoji.shown.endsWith(QChar(0x2026)));
+        for (const QChar c : emoji.shown.chopped(1))
+            QVERIFY(!c.isHighSurrogate() || emoji.shown.indexOf(c) + 1 < emoji.shown.size());
+        QVERIFY(emoji.width * 2 <= 120);
     }
 
     void parsesDueDates() {
