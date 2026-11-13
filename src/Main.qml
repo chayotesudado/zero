@@ -810,25 +810,6 @@ ApplicationWindow {
                         }
                     }
 
-                    // Sections are made from here too, not only with S.
-                    footer: Item {
-                        width: ListView.view.width
-                        height: win.sectionsHere && backend.loaded ? 48 : 0
-                        visible: height > 0
-                        Label {
-                            id: addSectionLabel
-                            anchors.left: parent.left
-                            anchors.leftMargin: 16
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: qsTr("+ Add section (S)")
-                            font.pixelSize: 13
-                            padding: 4
-                            color: addSectionHover.hovered ? theme.accent : theme.dimForeground
-                            HoverHandler { id: addSectionHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler { onTapped: sectionDialog.openNew(backend.viewName) }
-                        }
-                    }
-
                     DropLine {
                         visible: taskList.dragRow !== null && taskList.dropAt >= 0
                         y: Math.max(0, (taskList.dropAt, taskList.contentHeight,

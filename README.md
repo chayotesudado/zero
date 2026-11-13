@@ -77,7 +77,7 @@ project or the Inbox, or onto Today becomes due today. Projects drag among
 their siblings in the sidebar; Shift+M nests them.
 
 A project's sections show as headings in its list, empty ones included,
-and new ones are made with S or "+ Add section" at the end of the list.
+and new ones are made with S.
 Select a heading with J/K or a click: N then adds into that section, Enter
 renames it, Alt+J/K moves it, and Delete deletes it along with its tasks,
 as Todoist does. Deleting a task
