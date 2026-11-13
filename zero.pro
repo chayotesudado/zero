@@ -6,7 +6,7 @@ TEMPLATE = app
 
 HEADERS += \
     src/backend.h \
-    src/pixeltext.h \
+    src/pixelart.h \
     src/cli.h \
     src/credentials.h \
     src/tasks.h \
@@ -17,7 +17,7 @@ HEADERS += \
 SOURCES += \
     src/main.cpp \
     src/backend.cpp \
-    src/pixeltext.cpp \
+    src/pixelart.cpp \
     src/cli.cpp \
     src/credentials.cpp \
     src/tasks.cpp \

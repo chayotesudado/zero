@@ -37,6 +37,13 @@ ApplicationWindow {
     // and as tall as the logo.
     readonly property int headerTop: 22
     readonly property int headerHeight: 30
+    // A project's color as a pastel: its hue, gentler, and light on dark
+    // themes (dark on light ones) so the title reads on either.
+    function pastel(c) {
+        var k = Qt.color(c)
+        var light = theme.light ? Math.min(k.hslLightness, 0.42) : Math.max(k.hslLightness, 0.67)
+        return Qt.hsla(k.hslHue, Math.min(k.hslSaturation, 0.75) * 0.88, light, 1)
+    }
     onCompactChanged: sidebarOpen = false
     // Single-key shortcuts stand down while typing into a field.
     readonly property bool typing: activeFocusItem instanceof TextInput || activeFocusItem instanceof TextEdit
@@ -368,12 +375,12 @@ ApplicationWindow {
                     // The logo, the check and ZERO, drawn in the theme's
                     // colors at three times its pixel art (165 by 30), lined
                     // up with the lists' icons below. It shares its line with
-                    // the page title, which is drawn the same way at the same
-                    // height, and below it there's 1.5 times the gap between
-                    // the lists, so it reads as a header, not the first item.
-                    PixelText {
+                    // the page title, and below it there's 1.5 times the gap
+                    // between the lists, so it reads as a header, not the
+                    // first item.
+                    PixelArt {
                         art: "lockup"
-                        maxScale: 3
+                        pixelScale: 3
                         faceColor: win.pixelFace
                         midColor: win.pixelMid
                         deepColor: win.pixelDeep
@@ -519,31 +526,34 @@ ApplicationWindow {
                         ToolTip.text: qsTr("Lists (Ctrl+B)")
                         ToolTip.delay: 400
                     }
-                    // The list's name in the logo's lettering, its faces on
-                    // the logo's line. Long names drop to two times, then
-                    // are cut short. Characters the lettering lacks (©,
-                    // emoji, other scripts) are drawn in the regular font,
-                    // as tall as its capitals, in their place.
+                    // The list's name, its capitals middled on the logo's
+                    // line. A project's is in its color, softened toward
+                    // the text color so it reads on any theme.
                     Item {
                         id: pageTitle
                         Layout.fillWidth: true
                         Layout.preferredHeight: win.headerHeight
-                        // Where the faces' middle row sits, as in the logo.
+                        // The middle of the logo's faces, 12 px down.
                         readonly property real faceMiddle: 12
+                        readonly property var project: (backend.view, backend.projects, win.currentProject())
 
-                        PixelText {
-                            id: pixelTitle
+                        Label {
+                            id: titleLabel
+                            width: parent.width
                             text: backend.viewName
-                            font: win.font
-                            maxScale: 3
-                            minScale: 2
-                            maxWidth: pageTitle.width
-                            faceColor: win.pixelFace
-                            midColor: win.pixelMid
-                            deepColor: win.pixelDeep
-                            y: pageTitle.faceMiddle - 4 * pixelScale - faceTop
+                            textFormat: Text.PlainText
+                            font.pixelSize: 20
+                            font.bold: true
+                            color: pageTitle.project && pageTitle.project.color
+                                   ? win.pastel(pageTitle.project.color) : theme.foreground
+                            elide: Text.ElideRight
                             Accessible.role: Accessible.Heading
-                            Accessible.name: backend.viewName
+                            FontMetrics { id: titleMetrics; font: titleLabel.font }
+                            // Naming the font makes this re-measure when it
+                            // changes; the call alone isn't a dependency.
+                            readonly property real capHeight: (titleMetrics.font, titleMetrics.tightBoundingRect("H").height)
+                            readonly property real wantedY: pageTitle.faceMiddle - baselineOffset + capHeight / 2
+                            y: isFinite(wantedY) ? Math.round(wantedY) : 0
                         }
                     }
                     BusyIndicator {
@@ -932,10 +942,10 @@ ApplicationWindow {
                         visible: backend.loaded && backend.rows.length === 0
                         spacing: 8
                         // The logo's check, nothing left to do.
-                        PixelText {
+                        PixelArt {
                             anchors.horizontalCenter: parent.horizontalCenter
                             art: "check"
-                            maxScale: 4
+                            pixelScale: 4
                             faceColor: win.pixelFace
                             midColor: win.pixelMid
                             deepColor: win.pixelDeep

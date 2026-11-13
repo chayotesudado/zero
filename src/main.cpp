@@ -12,7 +12,7 @@
 #include "backend.h"
 #include "cli.h"
 #include "credentials.h"
-#include "pixeltext.h"
+#include "pixelart.h"
 #include "theme.h"
 #include "translator.h"
 
@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
     Theme theme;
     Backend backend;
 
-    qmlRegisterType<PixelText>("Zero", 1, 0, "PixelText");
+    qmlRegisterType<PixelArt>("Zero", 1, 0, "PixelArt");
     QQmlApplicationEngine engine;
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     engine.rootContext()->setContextProperty("translator", &translator);
